@@ -1,0 +1,81 @@
+{
+  "method": "synthetic local warm benchmark; 3 warmups then 12 samples per operation; fixed logical time; single machine; not LLM latency",
+  "baselineVersion": "0.1.0",
+  "version": "0.1.1",
+  "before": {
+    "synthetic": true,
+    "node": "v24.21.0",
+    "counts": {
+      "digests": 50000,
+      "scopes": 10000,
+      "contacts": 2000,
+      "messages": 20000,
+      "learningEvents": 20000
+    },
+    "promptChars": 16943,
+    "results": [
+      {
+        "name": "privacy-check-50k-digests",
+        "repetitions": 12,
+        "medianMs": 359.151,
+        "p95Ms": 407.148
+      },
+      {
+        "name": "privacy-context-10k-scopes",
+        "repetitions": 12,
+        "medianMs": 15.017,
+        "p95Ms": 17.061
+      },
+      {
+        "name": "social-status-2k-contacts-20k-messages",
+        "repetitions": 12,
+        "medianMs": 54.01,
+        "p95Ms": 61.192
+      },
+      {
+        "name": "full-status",
+        "repetitions": 12,
+        "medianMs": 153.722,
+        "p95Ms": 181.442
+      }
+    ]
+  },
+  "after": {
+    "synthetic": true,
+    "node": "v24.21.0",
+    "counts": {
+      "digests": 50000,
+      "scopes": 10000,
+      "contacts": 2000,
+      "messages": 20000,
+      "learningEvents": 20000
+    },
+    "promptChars": 11258,
+    "results": [
+      {
+        "name": "privacy-check-50k-digests",
+        "repetitions": 12,
+        "medianMs": 3.066,
+        "p95Ms": 6.699
+      },
+      {
+        "name": "privacy-context-10k-scopes",
+        "repetitions": 12,
+        "medianMs": 0.013,
+        "p95Ms": 0.026
+      },
+      {
+        "name": "social-status-2k-contacts-20k-messages",
+        "repetitions": 12,
+        "medianMs": 8.002,
+        "p95Ms": 9.925
+      },
+      {
+        "name": "full-status",
+        "repetitions": 12,
+        "medianMs": 17.566,
+        "p95Ms": 20.76
+      }
+    ]
+  }
+}

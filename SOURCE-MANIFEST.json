@@ -1,5 +1,5 @@
 {
-  "version": "0.1.0",
+  "version": "0.1.1",
   "files": [
     {
       "path": ".gitignore",
@@ -8,8 +8,8 @@
     },
     {
       "path": "CHANGELOG.md",
-      "bytes": 1318,
-      "sha256": "24899b2118666844b46720aa6c2da596008cfcb9b21cb21960181fe04cc0c2f3"
+      "bytes": 2479,
+      "sha256": "158d30bf619133b8133fae01094f5367d72928f617abafead0b9621c792e6405"
     },
     {
       "path": "LICENSE",
@@ -18,13 +18,13 @@
     },
     {
       "path": "README.md",
-      "bytes": 15630,
-      "sha256": "24782442a024e37cd1a7d051023e8ebc3ae2e4196850e331a15761dd43b46e27"
+      "bytes": 15966,
+      "sha256": "29c8cb6d3ff809cd48414ade1ef54f1c6fb8c142b27acf37113323128b62c926"
     },
     {
       "path": "SECURITY.md",
-      "bytes": 5393,
-      "sha256": "1e99fffab5d689e1f8fac19356163299d4ae115db60fc976589028d582815b3a"
+      "bytes": 5910,
+      "sha256": "a5b414494c40e07d3b082681e86659975dae1124497231dc3cbf60b2f96d0cdf"
     },
     {
       "path": "THIRD_PARTY_NOTICES.md",
@@ -33,8 +33,8 @@
     },
     {
       "path": "USER_GUIDE.md",
-      "bytes": 10546,
-      "sha256": "c362db9b278c5d1b208dcd0d8586ffd259f6a6697ab0ac1122389645047db174"
+      "bytes": 10965,
+      "sha256": "6162cbb4256575881055e5a5f24bf69844538883d3367fda41fdb7f813691e2a"
     },
     {
       "path": "client.js",
@@ -49,7 +49,17 @@
     {
       "path": "docs/dependency-audit.json",
       "bytes": 3196,
-      "sha256": "e6769829874a83809c8c7112400153f4951a411e3fdef46007f633ce0b365048"
+      "sha256": "8e16274f79d7a5ae24f7e2813e4e28ba2fed71c54fc05a0bfe22873ce345ae05"
+    },
+    {
+      "path": "docs/performance-0.1.1.json",
+      "bytes": 1844,
+      "sha256": "bdc4a7e3299594fa281eb3a98a78f4f9456abfb60b1227ec86b9305d77dc8034"
+    },
+    {
+      "path": "docs/performance-0.1.1.md",
+      "bytes": 3638,
+      "sha256": "4aa5bfa17cdef4007d04cb6a8f08caecc052937bc0c6f3e93697a837e18d87ae"
     },
     {
       "path": "index.js",
@@ -58,8 +68,8 @@
     },
     {
       "path": "package.json",
-      "bytes": 1462,
-      "sha256": "0ca61e0fb6e5c2895ee1b5d32c3df5ce44b4f581b824f05efdf03ec34869b6f8"
+      "bytes": 1552,
+      "sha256": "060395dbdbbb1335f94a10f55d589849418942a2ac30db0cc11e156f4a194ffa"
     },
     {
       "path": "python/audio.py",
@@ -142,14 +152,19 @@
       "sha256": "ffa2fb9e05659bfdf8e8f54a9ca2dd1cbc1cbdc463f85252de42c9a61a21811a"
     },
     {
+      "path": "scripts/benchmark.mjs",
+      "bytes": 3962,
+      "sha256": "3fb0e10a39fc2e31995cb7866b62556cb4fd0c5425d5b6148f136ba8d6970914"
+    },
+    {
       "path": "scripts/check.mjs",
       "bytes": 1200,
       "sha256": "545616d99f1b2a9bba83af0610ca64d14179b21fea9bcb12a0363aadfd58ed08"
     },
     {
       "path": "scripts/export-release.mjs",
-      "bytes": 2842,
-      "sha256": "5c56a6b8d746c9b3ba044f8f116f6b96cc95c125a5b1008bcbeaa5a8d9cf13cf"
+      "bytes": 3082,
+      "sha256": "00e27bc957543e2f3b81d8d80be5244c4096fc7024e3b195fb4bc6783b7aa443"
     },
     {
       "path": "scripts/install-desktop.mjs",
@@ -183,8 +198,8 @@
     },
     {
       "path": "src/contacts.mjs",
-      "bytes": 10031,
-      "sha256": "cf66bd0f09e9567b1513badb561dc0d3d7d0c9dffd07802a5ce369bbd281c952"
+      "bytes": 10713,
+      "sha256": "8dc6b2f19965a1f8453d62af58428ed86d87f8ea10f80d7c4a64c3de0bf0c3d7"
     },
     {
       "path": "src/controller.mjs",
@@ -193,8 +208,8 @@
     },
     {
       "path": "src/decision.mjs",
-      "bytes": 20329,
-      "sha256": "cc449f89205e28057bcf6190847ea2d76658d4bec67df295d448ec7528d28156"
+      "bytes": 20400,
+      "sha256": "a7591f963cb15c616ae290e2f6f0cb6ce5440c1ea7ddf248acac1bb89021c407"
     },
     {
       "path": "src/dependencies.mjs",
@@ -218,8 +233,8 @@
     },
     {
       "path": "src/feedback.mjs",
-      "bytes": 7462,
-      "sha256": "382e3865d5f337514790770845138ebecf6426763b8bc0220c1743b7b9fd0ab9"
+      "bytes": 7586,
+      "sha256": "4b4102a74da41f4f13dbbdb5c5bbd7d05ae8f4a5fb8d842053396fb48dbb9bb1"
     },
     {
       "path": "src/history.mjs",
@@ -228,8 +243,8 @@
     },
     {
       "path": "src/host.mjs",
-      "bytes": 12967,
-      "sha256": "e3f528a5954d8f5ce204c2d391fe5cb398ec0c890612b4942cbcbcb8cf2dd699"
+      "bytes": 13080,
+      "sha256": "3ee6382589c7dd68c4e41c52728e9fb4669cc6ec615860b5848796db7844cd6c"
     },
     {
       "path": "src/interactions.mjs",
@@ -243,8 +258,8 @@
     },
     {
       "path": "src/learning.mjs",
-      "bytes": 33020,
-      "sha256": "5e612ed6aff3d38c646b85af7526d59f2ddf637a287d36e2f8e560184f887892"
+      "bytes": 33577,
+      "sha256": "0de2d428b6b40c9888ab22bb857be0c435c565ed4196ca0db8648c4d5aa04a4d"
     },
     {
       "path": "src/media.mjs",
@@ -263,8 +278,8 @@
     },
     {
       "path": "src/privacy.mjs",
-      "bytes": 8879,
-      "sha256": "2ab3c883ed94ada15ea16d340f1e7d242bc1eccdcd5bb78c9e4937e18f021f8d"
+      "bytes": 10831,
+      "sha256": "780788b3d0cacc816fa514fa795e8416d985d5bc3156504fd462faaadc464da3"
     },
     {
       "path": "src/python.mjs",
@@ -273,8 +288,8 @@
     },
     {
       "path": "src/relationships.mjs",
-      "bytes": 17260,
-      "sha256": "cc6b14aa5ae9a30ffbaccffa3c10d57a0285b7368cd6b395db23090170a7c851"
+      "bytes": 17400,
+      "sha256": "a3efbabcda0474391f8b151c8f69b0a726d98b45c95b95c14ea341ddd38df206"
     },
     {
       "path": "src/scheduler.mjs",
@@ -283,8 +298,8 @@
     },
     {
       "path": "src/social.mjs",
-      "bytes": 18508,
-      "sha256": "3bf6f2a0f30fd7d554edb0a440c7394b6eb9e41b84ff80f5b05928975549f14f"
+      "bytes": 18584,
+      "sha256": "956659abe33f3489cdcd866c5a791780d0969792a54f89d9d8cc57859f280a25"
     },
     {
       "path": "src/store.mjs",
@@ -298,8 +313,8 @@
     },
     {
       "path": "src/time.mjs",
-      "bytes": 1825,
-      "sha256": "016ae89547003a6dc7be1550afeacf25b359d85d42500ee93cfe75dfbdc8023d"
+      "bytes": 2117,
+      "sha256": "a65d92e6b843f4a088810e6e6dcd39a388e5278833231c0845c49ad25c2d29f9"
     },
     {
       "path": "src/weekly-assets.mjs",
@@ -333,8 +348,8 @@
     },
     {
       "path": "tests/community.test.mjs",
-      "bytes": 6356,
-      "sha256": "e889f31be4a58d9ca2e683a8003f1a4cef331f8fb3b6c20f3f78842321cbe8af"
+      "bytes": 6390,
+      "sha256": "577543a1f8e09bf9fc914581ec0d11b879a41df8dfb8e9f8f9391c4af654137a"
     },
     {
       "path": "tests/community_test.py",
@@ -435,6 +450,11 @@
       "path": "tests/model_setup_test.py",
       "bytes": 5612,
       "sha256": "c6da7652070e3d02b2a58c170d156327f813453ac82242d7902631688ffcef49"
+    },
+    {
+      "path": "tests/performance.test.mjs",
+      "bytes": 7894,
+      "sha256": "b76ff59067f519061867184beb9ae1d7471adace52b1c7c481739618c4c695e9"
     },
     {
       "path": "tests/privacy.test.mjs",

@@ -76,9 +76,9 @@ export class DshHost {
     assert(tools.wireSchemas(agent).schemas.length === 0, 'SCOPE_NOT_READ_ONLY',
       '无法建立无工具的预览对话，请检查宿主 Agent preset。', 503);
   }
-  async observe(sessionId) {
+  async observe(sessionId, { includeEvents = true } = {}) {
     const observation = await this.query.observeSession(sessionId, { projectionMode: 'none' });
-    try { return { header: structuredClone(observation.header), events: [...observation.events] }; }
+    try { return { header: structuredClone(observation.header), ...(includeEvents ? { events: [...observation.events] } : {}) }; }
     finally { observation[Symbol.dispose]?.(); }
   }
   async health() {
@@ -90,7 +90,7 @@ export class DshHost {
       if (canonical(workspace.path) !== binding.path) return {
         ...binding, phase: 'repair', reason: '工作区目录已变化，需要修复原绑定。',
       };
-      const { header } = await this.observe(binding.sessionId);
+      const { header } = await this.observe(binding.sessionId, { includeEvents: false });
       if (!header.cwd || canonical(header.cwd) !== binding.path) return {
         ...binding, phase: 'repair', reason: '会话的原始目录归属与所选工作区不同。',
       };
@@ -132,7 +132,7 @@ export class DshHost {
       // A prior create may have succeeded before the plugin crashed. Recover
       // only that reserved identity; never call create again on this path.
       try {
-        const observation = await this.observe(binding.sessionId);
+        const observation = await this.observe(binding.sessionId, { includeEvents: false });
         assert(canonical(observation.header.cwd) === path, 'BINDING_MISMATCH', '原会话目录不匹配。');
         assert(!this.workspaces.archivedSessionIds?.includes(binding.sessionId),
           'SESSION_ARCHIVED', '请先在宿主恢复已归档的原对话。', 409);

@@ -13,6 +13,7 @@ export class Feedback {
   constructor(c) {
     this.c = c; this.s = c.store; this.db = this.s.db;
     this.db.exec('CREATE TABLE IF NOT EXISTS learning_feedback(id TEXT PRIMARY KEY,account_uid TEXT NOT NULL,at_ms INTEGER NOT NULL,dedup_key TEXT NOT NULL UNIQUE,data TEXT NOT NULL);');
+    this.db.exec('CREATE INDEX IF NOT EXISTS feedback_account_time ON learning_feedback(account_uid,at_ms DESC,id DESC);');
   }
   enabled() { const config = this.s.config(); return config.learningEnabled && config.learningFeedbackEnabled; }
   record({ account, sender, sourceId, text, scope, bvid = '', url = '' }) {

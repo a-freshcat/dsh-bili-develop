@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { assert, errorView } from './errors.mjs';
 import { ownerUid } from './owner.mjs';
-import { eligibility } from './contacts.mjs';
+import { eligibility, rankedContacts } from './contacts.mjs';
 import { inActivity } from './time.mjs';
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
@@ -15,7 +15,7 @@ export class Relationships {
   budget(account = this.account()) {
     const config = this.s.config(), w = this.s.window(config, this.c.now());
     const follow = this.db.prepare("SELECT COUNT(*) n,MAX(at_ms) last FROM follow_attempts WHERE account_uid=? AND at_ms>=? AND at_ms<? AND state<>'already'").get(account, w.start, w.end);
-    const proactive = this.db.prepare("SELECT COUNT(*) n FROM private_attempts p JOIN private_messages m ON p.id=m.id WHERE p.account_uid=? AND p.at_ms>=? AND p.at_ms<? AND json_extract(m.data,'$.kind')='proactive'").get(account, w.start, w.end);
+    const proactive = this.db.prepare("SELECT COUNT(*) n FROM private_attempts p JOIN private_messages m ON p.id=m.id AND p.account_uid=m.account_uid WHERE p.account_uid=? AND p.at_ms>=? AND p.at_ms<? AND json_extract(m.data,'$.kind')='proactive'").get(account, w.start, w.end);
     const generated = this.db.prepare("SELECT COUNT(*) n FROM private_messages WHERE account_uid=? AND at_ms>=? AND at_ms<? AND json_extract(data,'$.kind')='proactive'").get(account, w.start, w.end);
     return { follows: Number(follow.n), followLimit: config.autoFollowDailyLimit, lastFollowAt: follow.last,
       proactive: Number(proactive.n), proactiveGenerations: Number(generated.n), proactiveLimit: config.dmProactiveDailyLimit };
@@ -156,7 +156,8 @@ export class Relationships {
       return;
     }
     if (this.budget(account).proactiveGenerations >= config.dmProactiveDailyLimit) return;
-    const person = people.find(p => p.score === 100 && eligibility(p, people, config).allowed && this.c.now() >= this.s.get('proactiveAfter:' + account + ':' + p.uid, 0) && !this.contacts.message('hello-' + hash([account, p.uid, this.s.window(config, this.c.now()).start]).slice(0, 40)));
+    const ranks = new Map(rankedContacts(people, config).map((p, i) => [p.uid, i]));
+    const person = people.find(p => p.score === 100 && eligibility(p, people, config, ranks).allowed && this.c.now() >= this.s.get('proactiveAfter:' + account + ':' + p.uid, 0) && !this.contacts.message('hello-' + hash([account, p.uid, this.s.window(config, this.c.now()).start]).slice(0, 40)));
     if (person) await this.prepareProactive(person);
   }
   start() { this.timer = setInterval(() => this.tick(), 60000); this.timer.unref?.(); }

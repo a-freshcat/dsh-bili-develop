@@ -8,12 +8,12 @@ export function rankedContacts(people, config) {
   return people.filter(p => p.uid !== owner && p.fan && !p.blocked && p.score >= FRIENDLY_THRESHOLD)
     .sort((a, b) => b.score - a.score || (BigInt(a.uid) < BigInt(b.uid) ? -1 : 1));
 }
-export function eligibility(person, people, config) {
+export function eligibility(person, people, config, ranks = null) {
   if (!person || person.blocked) return { allowed: false, reason: '联系人已屏蔽或尚未识别' };
   if (person.uid === ownerUid(config)) return { allowed: true, owner: true, rank: null, reason: '使用者：不占前100名，不受60分门槛限制' };
   if (!person.fan) return { allowed: false, reason: '尚未验证为大肥鱼账号的粉丝' };
   if (person.score < FRIENDLY_THRESHOLD) return { allowed: false, reason: '友善度低于60分' };
-  const index = rankedContacts(people, config).findIndex(p => p.uid === person.uid);
+  const index = ranks ? ranks.get(person.uid) ?? -1 : rankedContacts(people, config).findIndex(p => p.uid === person.uid);
   return index >= 0 && index < CHAT_LIMIT ? { allowed: true, rank: index + 1, reason: '具备聊天资格' } :
     { allowed: false, rank: index < 0 ? null : index + 1, reason: '未进入友善度前100名' };
 }
@@ -34,7 +34,7 @@ export function privatePrompt(run, config) {
     '这只是大肥鱼的互动感受，不是对真人品格的客观判断。理由要引用消息中的具体表现，不要输出内部推理过程。',
     p.isOwner ? ownerTone(p.person.score, config.ownerAttitudeEnabled) : '保持基础人设，允许不想回复。',
     '只对这条来信写简短回复草稿。发送资格最终由程序重新计算；低分或排名外仍可评价，不能要求程序放行。',
-    `在最后一个json代码块输出：runId、score_delta（整数-10～10）、evaluation（1～400字）、evidence_quote（本条来信直接原文至少2字）、should_reply（布尔）、reply（最多${config.dmMaxChars}字，不回复为空）。`,
+    `仅输出一个json代码块，块内单行紧凑JSON，不在块外重复评价或来信。字段：runId、score_delta（整数-10～10）、evaluation（简短理由，最多100字）、evidence_quote（本条来信短引，建议2～40字）、should_reply（布尔）、reply（最多${config.dmMaxChars}字，不回复为空）。`,
     JSON.stringify({ sender: { isOwner: p.isOwner, fan: p.person.fan },
       previousEvaluation: p.person.evaluation || '', message: { text: p.message.text } }),
   ].join('\n');
@@ -61,6 +61,11 @@ export class Contacts {
       CREATE TABLE IF NOT EXISTS private_messages(id TEXT PRIMARY KEY,account_uid TEXT NOT NULL,uid TEXT NOT NULL,state TEXT NOT NULL,at_ms INTEGER NOT NULL,data TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS private_account ON private_messages(account_uid,at_ms);
       CREATE TABLE IF NOT EXISTS private_attempts(id TEXT PRIMARY KEY,account_uid TEXT NOT NULL,uid TEXT NOT NULL,at_ms INTEGER NOT NULL);
+      CREATE INDEX IF NOT EXISTS private_message_account_time ON private_messages(account_uid,at_ms DESC,id DESC);
+      CREATE INDEX IF NOT EXISTS private_message_kind_time ON private_messages(account_uid,json_extract(data,'$.kind'),at_ms);
+      CREATE INDEX IF NOT EXISTS private_attempt_account_time ON private_attempts(account_uid,at_ms);
+      CREATE INDEX IF NOT EXISTS private_attempt_person_time ON private_attempts(account_uid,uid,at_ms);
+      CREATE INDEX IF NOT EXISTS contact_score_person ON contact_scores(account_uid,uid,id DESC);
     `);
   }
   all(account) { return this.db.prepare('SELECT data FROM contacts WHERE account_uid=?').all(account).map(r => JSON.parse(r.data)); }

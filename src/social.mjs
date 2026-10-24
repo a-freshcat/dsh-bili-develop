@@ -29,8 +29,9 @@ export class Social {
     assert(Number.isInteger(contactsOffset) && contactsOffset >= 0 && contactsOffset <= 1000000 &&
       typeof contactQuery === 'string' && contactQuery.length <= 100, 'CONTACT_PAGE', '联系人查询无效。');
     const config = this.store.config(), people = this.contacts.all(this.account), uid = ownerUid(config);
-    const annotate = p => ({ ...p, eligibility: eligibility(p, people, config) });
     const ranking = rankedContacts(people, config);
+    const ranks = new Map(ranking.map((p, i) => [p.uid, i]));
+    const annotate = p => ({ ...p, eligibility: eligibility(p, people, config, ranks) });
     const others = people.filter(p => p.uid !== uid).sort((a, b) => b.score - a.score || (BigInt(a.uid) < BigInt(b.uid) ? -1 : 1))
       .filter(p => !contactQuery || p.uid.includes(contactQuery) || p.name.includes(contactQuery));
     return { accountUid: this.account, enabled: config.dmEnabled, autoSend: config.dmAutoSend,
@@ -42,7 +43,7 @@ export class Social {
         const person = this.contacts.person(this.account, m.uid);
         return { id: m.id, kind: m.kind || 'reply', uid: m.uid, isOwner: m.uid === uid, name: person?.name || '', state: m.state,
           at: m.at, text: m.text, draft: m.draft || '', evaluation: m.evaluation || '', reason: m.reason || '',
-          eligibility: eligibility(person, people, config) };
+          eligibility: eligibility(person, people, config, ranks) };
       }) };
   }
   assertIdle() {

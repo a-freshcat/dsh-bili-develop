@@ -31,31 +31,55 @@ export class Privacy {
     this.c = c; this.s = c.store; this.db = this.s.db;
     this.db.exec(`CREATE TABLE IF NOT EXISTS privacy_scopes(id TEXT PRIMARY KEY,session_id TEXT NOT NULL,account_uid TEXT NOT NULL,recipient_uid TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS privacy_digests(session_id TEXT NOT NULL,account_uid TEXT NOT NULL,recipient_uid TEXT NOT NULL,size INTEGER NOT NULL,digest TEXT NOT NULL,PRIMARY KEY(session_id,account_uid,recipient_uid,digest));
-      CREATE TABLE IF NOT EXISTS privacy_reviews(id TEXT PRIMARY KEY,revision TEXT NOT NULL,context_hash TEXT NOT NULL,at_ms INTEGER NOT NULL);`);
+      CREATE TABLE IF NOT EXISTS privacy_reviews(id TEXT PRIMARY KEY,revision TEXT NOT NULL,context_hash TEXT NOT NULL,at_ms INTEGER NOT NULL);
+      CREATE INDEX IF NOT EXISTS privacy_digest_lookup ON privacy_digests(session_id,size,digest,account_uid,recipient_uid);
+      CREATE INDEX IF NOT EXISTS privacy_scope_session ON privacy_scopes(session_id,id);`);
+    this.localChanges = this.db.prepare('SELECT total_changes() n');
+    this.externalChanges = this.db.prepare('PRAGMA data_version');
+    this.sizes = this.db.prepare('SELECT DISTINCT size FROM privacy_digests WHERE session_id=?');
+    this.findPublic = this.db.prepare('SELECT 1 FROM privacy_digests WHERE session_id=? AND size=? AND digest=? LIMIT 1');
+    this.findForeign = this.db.prepare('SELECT 1 FROM privacy_digests WHERE session_id=? AND size=? AND digest=? AND NOT (account_uid=? AND recipient_uid=?) LIMIT 1');
     this.key = this.s.get('privacyDigestKey');
     if (!this.key) { this.key = randomBytes(32).toString('hex'); this.s.set('privacyDigestKey', this.key); }
     // Conservative migration: cleared local DM rows do not prove the original dialogue forgot them.
-    const binding = this.s.get('binding');
-    for (const row of this.db.prepare("SELECT data FROM runs WHERE kind IN ('dm','dm_proactive')").all()) {
-      const r = JSON.parse(row.data); this.remember(r.id, r.sessionId, r.accountUid, r.dmPayload?.person?.uid || r.proactivePayload?.person?.uid || '', [r.dmPayload?.message?.text, r.dmPayload?.person?.evaluation]);
-    }
-    if (binding) for (const row of this.db.prepare('SELECT data FROM private_messages').all()) {
-      const m = JSON.parse(row.data); this.remember('legacy:' + m.id, binding.sessionId, m.accountUid, m.uid, [m.text, m.draft, m.evaluation]);
-    }
+    if (!this.s.get('privacyBackfillV1', false)) this.s.transaction(() => {
+      const binding = this.s.get('binding');
+      for (const row of this.db.prepare("SELECT data FROM runs WHERE kind IN ('dm','dm_proactive')").all()) {
+        const r = JSON.parse(row.data); this.remember(r.id, r.sessionId, r.accountUid, r.dmPayload?.person?.uid || r.proactivePayload?.person?.uid || '', [r.dmPayload?.message?.text, r.dmPayload?.person?.evaluation]);
+      }
+      if (binding) for (const row of this.db.prepare('SELECT data FROM private_messages').all()) {
+        const m = JSON.parse(row.data); this.remember('legacy:' + m.id, binding.sessionId, m.accountUid, m.uid, [m.text, m.draft, m.evaluation]);
+      }
+      this.s.set('privacyBackfillV1', true);
+    });
   }
   digest(text) { return createHmac('sha256', this.key).update(text).digest('hex'); }
   remember(id, session, account, recipient, texts) {
     if (!session) return;
-    this.db.prepare('INSERT OR IGNORE INTO privacy_scopes VALUES(?,?,?,?)').run(id, session, account || '', recipient || '');
-    const insert = this.db.prepare('INSERT OR IGNORE INTO privacy_digests VALUES(?,?,?,?,?)');
-    let room = Math.max(0, 50000 - Number(this.db.prepare('SELECT COUNT(*) n FROM privacy_digests').get().n));
-    for (const text of texts) for (const piece of pieces(String(text || '').slice(0, 4000))) if (room-- > 0) insert.run(session, account || '', recipient || '', [...piece].length, this.digest(piece));
+    // A savepoint batches disk commits and also works within the caller's transaction.
+    this.db.exec('SAVEPOINT privacy_remember');
+    try {
+      this.db.prepare('INSERT OR IGNORE INTO privacy_scopes VALUES(?,?,?,?)').run(id, session, account || '', recipient || '');
+      const insert = this.db.prepare('INSERT OR IGNORE INTO privacy_digests VALUES(?,?,?,?,?)');
+      let room = Math.max(0, 50000 - Number(this.db.prepare('SELECT COUNT(*) n FROM privacy_digests').get().n));
+      for (const text of texts) for (const piece of pieces(String(text || '').slice(0, 4000))) if (room-- > 0) insert.run(session, account || '', recipient || '', [...piece].length, this.digest(piece));
+      this.db.exec('RELEASE privacy_remember');
+    } catch (error) { this.db.exec('ROLLBACK TO privacy_remember; RELEASE privacy_remember'); throw error; }
+  }
+  revision() {
+    // Never cache an uncommitted view: SQLite total_changes() is not rewound by rollback.
+    if (this.db.isTransaction !== false) return null;
+    return this.localChanges.get().n + ':' + this.externalChanges.get().data_version;
   }
   session() { return this.s.get('binding')?.sessionId || ''; }
   context(session = this.session()) {
+    const revision = this.revision();
+    if (revision !== null && this.contextCache?.session === session && this.contextCache.revision === revision) return { ...this.contextCache.value };
     const rows = this.db.prepare('SELECT id,account_uid,recipient_uid FROM privacy_scopes WHERE session_id=? ORDER BY id').all(session);
-    return { sharedPrivateContext: rows.length > 0, privateRecipientCount: new Set(rows.map(r => r.account_uid + ':' + r.recipient_uid)).size,
+    const value = { sharedPrivateContext: rows.length > 0, privateRecipientCount: new Set(rows.map(r => r.account_uid + ':' + r.recipient_uid)).size,
       contextHash: hash([session, rows]), warning: rows.length ? '原对话含私信历史：公开自动发送已阻止，逐条外发需要额外隐私审核；清理本地私信不等于清理原对话。' : '' };
+    if (revision !== null) this.contextCache = { session, revision, value };
+    return { ...value };
   }
   terms() {
     const c = this.s.config();
@@ -77,12 +101,21 @@ export class Privacy {
       const allowed = mentions.some(t => t.uid === this.s.config().ownerAccountUid && t.name === term) && raw.includes('@' + term);
       assert(allowed || !n.includes(normalized(term)), 'PRIVACY_BLOCKED', '外发文字包含受保护的身份或自定义隐私词，已阻止；不会显示命中内容。');
     }
-    const scopes = this.db.prepare('SELECT size,digest FROM privacy_digests WHERE session_id=?' + (recipient ? ' AND NOT (account_uid=? AND recipient_uid=?)' : '')).all(session, ...(recipient ? [account, recipient] : []));
-    const bySize = new Map();
-    for (const row of scopes) { if (!bySize.has(row.size)) bySize.set(row.size, new Set()); bySize.get(row.size).add(row.digest); }
+    const revision = this.revision();
+    let sizes;
+    if (revision === null) sizes = this.sizes.all(session).map(row => row.size);
+    else {
+      if (this.sizeCache?.session !== session || this.sizeCache.revision !== revision)
+        this.sizeCache = { session, revision, values: this.sizes.all(session).map(row => row.size) };
+      sizes = this.sizeCache.values;
+    }
     const chars = [...n];
-    for (const [size, hashes] of bySize) for (let i = 0; i + size <= chars.length; i++) assert(!hashes.has(this.digest(chars.slice(i, i + size).join(''))),
-      'PRIVACY_PRIVATE_TEXT', '外发文字与其他私密材料片段重合，已阻止；请重新撰写。');
+    // Query by digest instead of materializing the whole private history in JS.
+    for (const size of sizes) for (let i = 0; i + size <= chars.length; i++) {
+      const digest = this.digest(chars.slice(i, i + size).join(''));
+      assert(!(recipient ? this.findForeign.get(session, size, digest, account, recipient) : this.findPublic.get(session, size, digest)),
+        'PRIVACY_PRIVATE_TEXT', '外发文字与其他私密材料片段重合，已阻止；请重新撰写。');
+    }
     for (const url of raw.match(/https?:\/\/[^\s<>"']+/gi) || []) {
       let u; try { u = new URL(url); } catch { /* rejected below */ }
       assert(u?.protocol === 'https:' && u.hostname === 'www.bilibili.com' && !u.username && !u.password && !u.port && !u.search &&

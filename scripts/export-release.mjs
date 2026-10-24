@@ -4,12 +4,14 @@ import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 
 // A new allowlisted tree, never a copy of the developer's Git history or workspace data.
-const root = realpathSync(process.cwd()), output = resolve(process.argv[2] || 'desktop-m0-m1/release-0.1.0');
+const root = realpathSync(process.cwd()), version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version;
+assert.ok(/^\d+\.\d+\.\d+$/.test(version), 'Export requires a release version');
+const output = resolve(process.argv[2] || 'desktop-m0-m1/release-' + version);
 assert.ok(output.startsWith(root + '\\') || output.startsWith(root + '/'), 'Export must stay inside the workspace');
 assert.ok(!existsSync(output), 'Export target already exists; use a new empty path');
 const roots = ['README.md', 'USER_GUIDE.md', 'SECURITY.md', 'CHANGELOG.md', 'THIRD_PARTY_NOTICES.md', 'LICENSE', 'package.json', 'cordis.patch.yml', 'index.js', 'client.js', '.gitignore'];
-const scripts = ['check.mjs', 'install-desktop.mjs', 'setup-python.mjs', 'release-check.mjs', 'audit-dependencies.py', 'export-release.mjs'];
-const selected = [...roots, ...scripts.map(f => 'scripts/' + f), 'docs/dependency-audit.json'];
+const scripts = ['check.mjs', 'install-desktop.mjs', 'setup-python.mjs', 'release-check.mjs', 'audit-dependencies.py', 'export-release.mjs', 'benchmark.mjs'];
+const selected = [...roots, ...scripts.map(f => 'scripts/' + f), 'docs/dependency-audit.json', 'docs/performance-0.1.1.md', 'docs/performance-0.1.1.json'];
 for (const [directory, pattern] of [['src', /\.mjs$/], ['python', /(?:\.py$|^requirements(?:-audio)?\.txt$)/], ['tests', /\.(?:mjs|py)$/]]) {
   for (const name of readdirSync(directory)) if (pattern.test(name)) selected.push(directory + '/' + name);
 }
@@ -27,5 +29,5 @@ for (const file of selected.sort()) {
 }
 mkdirSync(output, { recursive: true });
 for (const file of selected) { const target = join(output, file); mkdirSync(resolve(target, '..'), { recursive: true }); copyFileSync(join(root, file), target); }
-writeFileSync(join(output, 'SOURCE-MANIFEST.json'), JSON.stringify({ version: '0.1.0', files: manifest }, null, 2) + '\n');
+writeFileSync(join(output, 'SOURCE-MANIFEST.json'), JSON.stringify({ version, files: manifest }, null, 2) + '\n');
 console.log(JSON.stringify({ output: relative(root, output), files: manifest.length, privateMarkers: false, gitHistoryIncluded: false }));

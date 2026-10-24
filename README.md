@@ -6,7 +6,7 @@
 
 基于 DeepSeek Harness 桌面版 · 指定工作区 · 唯一汇总对话
 
-<code>v0.1.0</code> &nbsp; <code>DSH 桌面插件</code> &nbsp; <code>GPL-3.0-or-later</code>
+<code>v0.1.1</code> &nbsp; <code>DSH 桌面插件</code> &nbsp; <code>GPL-3.0-or-later</code>
 
 [下载与安装](#installation) · [使用手册](USER_GUIDE.md) · [安全说明](SECURITY.md) · [更新记录](CHANGELOG.md)
 
@@ -65,6 +65,8 @@
 删除记录、重新登录或修改时区不会重置已消耗的额度。
 
 </details>
+
+0.1.1减少汇总对话中的重复提示：字幕采用紧凑结构，保留全部原文与时间戳；评价只请求一份简短JSON回执，不再在块外重复点评。必要资料仍在原对话可见，旧历史保留。
 
 **面板入口：** `浏览 → 浏览设置`
 
@@ -220,7 +222,7 @@ flowchart TD
 
 **适配目标：** DSH桌面版 `0.2.1-rc.2`、Node.js24及兼容Python环境。包声明宿主范围为 `>=0.2.1-rc.2 <0.3.0`，其他版本需要另行验证。
 
-1. 在[Releases](https://github.com/a-freshcat/dsh-bili-develop/releases)下载 `dsh-bili-develop-0.1.0-source.zip`，核对同页SHA256，解压到长期保留的目录。
+1. 在[Releases](https://github.com/a-freshcat/dsh-bili-develop/releases)下载 `dsh-bili-develop-0.1.1-source.zip`，核对同页SHA256，解压到长期保留的目录。
 2. 在解压目录预览本地链接安装：
 
    ```powershell
@@ -243,7 +245,7 @@ flowchart TD
 <summary><strong>升级、运行包与卸载</strong></summary>
 
 - 已有本地链接安装会继续使用原数据和唯一对话，不要重复创建绑定。
-- 升级到0.1.0请准备Python依赖，固定的Brotli1.2.1修复已知漏洞；旧解码器会被适配器拒绝。
+- 从0.1.0升级保留原数据和设置，没有新增Python依赖；更早版本请准备依赖以使用Brotli1.2.1安全版本。
 - `.tgz` 是运行包，供兼容的DSH包管理流程使用；本项目尚未发布到npm。源码ZIP包含安装和验证脚本。
 - 内部包名保持 `dsh-bilibili-harness`，GitHub仓库名为 `dsh-bili-develop`。
 - 卸载前先关闭相关功能，再从桌面profile移除该包依赖和bundle引用；不要删除整个profile或数据目录。
@@ -257,6 +259,7 @@ flowchart TD
 | [使用手册](USER_GUIDE.md) | 面板操作、额度、时间、记录与排错 |
 | [安全说明](SECURITY.md) | 隐私数据流、共享上下文限制与外发保护 |
 | [更新记录](CHANGELOG.md) | 公开版本的功能变化 |
+| [性能记录](docs/performance-0.1.1.md) | 合成基准、优化范围与复测方法 |
 | [许可与参考](THIRD_PARTY_NOTICES.md) | 依赖许可、设计参考及品牌说明 |
 
 <details>
@@ -271,7 +274,7 @@ python -m unittest discover -s tests -p '*_test.py' -v
 
 可选本机转写另装 `python/requirements-audio.txt`，模型权重单独配置。Windows链接和进程回收测试需要可创建链接、查看本进程的原生环境；受限沙箱可能返回EPERM。
 
-0.1.0发布前通过264项Node与113项Python测试，以及隐私专项、依赖审计和洁净打包检查。测试使用合成账号与模拟SDK，没有为发布验证而真实关注、发送私信、发表评论或发布动态。平台回执不代表其他账号可见，仍需按提示核对。
+0.1.1发布前通过272项Node与113项Python测试，以及隐私专项、依赖审计和洁净打包检查。测试使用合成账号与模拟SDK，没有为发布验证而真实关注、发送私信、发表评论或发布动态。平台回执不代表其他账号可见，仍需按提示核对。
 
 </details>
 
@@ -281,6 +284,6 @@ python -m unittest discover -s tests -p '*_test.py' -v
 
 **按自己的兴趣看，按实际依据评价，在一次次比较中慢慢形成自己的表达。**
 
-[开始使用](#installation) · [下载0.1.0](https://github.com/a-freshcat/dsh-bili-develop/releases/tag/v0.1.0)
+[开始使用](#installation) · [下载0.1.1](https://github.com/a-freshcat/dsh-bili-develop/releases/tag/v0.1.1)
 
 </div>

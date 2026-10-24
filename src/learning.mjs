@@ -30,6 +30,11 @@ export class Learning {
       CREATE TABLE IF NOT EXISTS learning_review_sources(source_id TEXT PRIMARY KEY,review_id TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS learning_review_events(event_id INTEGER PRIMARY KEY,review_id TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS learning_review_calls(id TEXT PRIMARY KEY,account_uid TEXT NOT NULL,at_ms INTEGER NOT NULL);
+      CREATE INDEX IF NOT EXISTS learning_event_entity ON learning_events(account_uid,entity_id,id DESC);
+      CREATE INDEX IF NOT EXISTS learning_event_recent ON learning_events(account_uid,id DESC);
+      CREATE INDEX IF NOT EXISTS learning_observation_time ON learning_observations(account_uid,at_ms);
+      CREATE INDEX IF NOT EXISTS learning_review_time ON learning_reviews(account_uid,end_ms DESC);
+      CREATE INDEX IF NOT EXISTS learning_call_time ON learning_review_calls(account_uid,at_ms);
     `);
     this.archive = new LearningArchive(this);
   }
@@ -69,10 +74,10 @@ export class Learning {
     pool.sort((a, b) => Number(relevant.includes(normal(b.expression))) - Number(relevant.includes(normal(a.expression))) || (a.uses || 0) - (b.uses || 0));
     const selected = pool.slice(0, 3);
     return { version: iteration.version, expressionIds: selected.map(e => e.id), text: [
-      '本次基础人设由用户填写，始终高于可变学习层。旧对话中的学习状态以本次快照为准。',
+      ...(config.learningEnabled || blocked.length ? ['基础人设优先；学习状态以本次快照为准。'] : []),
       config.learningEnabled ? '迭代人设是你自主保留的习惯和偏好，不能修改身份、基础人设边界、使用者身份或工具/发送权限：' + JSON.stringify(iteration.traits) : '自我学习已关闭：本次不采用以前的迭代人设和表达记忆。',
-      '少量可用表达（非必须使用，不堆梗，reduced表示尽量少用）：' + JSON.stringify(selected.map(e => ({ id: e.id, expression: e.expression, meaning: e.meaning, context: e.context, avoid: e.avoid, state: e.state }))),
-      '用户禁用的表达，草稿不可包含，不能自行恢复：' + JSON.stringify(blocked),
+      ...(selected.length ? ['少量可用表达（非必须使用，不堆梗，reduced表示尽量少用）：' + JSON.stringify(selected.map(e => ({ id: e.id, expression: e.expression, meaning: e.meaning, context: e.context, avoid: e.avoid, state: e.state })))] : []),
+      ...(blocked.length ? ['用户禁用的表达，草稿不可包含，不能自行恢复：' + JSON.stringify(blocked)] : []),
     ].join('\n') };
   }
   checkOutput(text, account) {

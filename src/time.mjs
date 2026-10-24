@@ -1,4 +1,5 @@
 const formatters = new Map();
+const windows = new Map();
 function parts(at, zone) {
   let formatter = formatters.get(zone);
   if (!formatter) {
@@ -12,6 +13,8 @@ export function localDay(at, zone) {
   const p = parts(at, zone); return p.year + '-' + p.month + '-' + p.day;
 }
 export function dayWindow(at, zone) {
+  const cached = windows.get(zone);
+  if (cached && at >= cached.start && at < cached.end) return { ...cached };
   const day = localDay(at, zone);
   let left = at - 48 * 3600000, right = at;
   while (right - left > 1) {
@@ -24,7 +27,10 @@ export function dayWindow(at, zone) {
     const mid = Math.floor((left + right) / 2);
     if (localDay(mid, zone) === day) left = mid; else right = mid;
   }
-  return { day, zone, start, end: right };
+  const window = { day, zone, start, end: right };
+  windows.delete(zone); windows.set(zone, window);
+  if (windows.size > 8) windows.delete(windows.keys().next().value);
+  return { ...window };
 }
 export function inActivity(at, config) {
   const p = parts(at, config.timeZone);
