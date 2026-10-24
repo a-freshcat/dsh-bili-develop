@@ -90,7 +90,7 @@ export class LearningArchive {
       ...(r.report ? ['## 学习汇报', block(r.report)] : []), ...(r.direction ? ['## 后续探索方向', block(r.direction)] : []),
       ...((r.creativeIdeas || []).length ? ['## 不足与创意提案（不自动执行）', block(r.creativeIdeas.map(i => '不足：' + i.issue + '\n想法：' + i.idea + '\n小实验：' + i.trial + '\n理由：' + i.reason).join('\n\n'))] : []),
       '## 实际统计', block(JSON.stringify(r.stats || {}, null, 2)), '## 公开材料来源',
-      ...(r.sources || []).map(s => s.kind === 'feedback' ? '- ' + (s.scope === 'private_style' ? '交流表达建议（已脱敏，不含私信原文与身份）' : '公开回复的表达建议') + '\n' + block(s.summary || '') +
+      ...(r.sources || []).map(s => s.kind === 'feedback' ? '- ' + (s.scope === 'private_dialogue' ? '私信对话复盘线索（已脱敏，不含原文与身份，不代表批评）' : s.scope === 'private_style' ? '交流表达建议（已脱敏，不含私信原文与身份）' : '公开回复的表达建议') + '\n' + block(s.summary || '') +
         (s.scope === 'public_reply' && /^https:\/\/www\.bilibili\.com\/video\/BV[A-Za-z0-9]{10}\/#reply\d+$/.test(s.url || '') ? '\n[查看公开回复](' + s.url + ')' : '') :
         /^BV[0-9A-Za-z]{10}$/.test(s.bvid) ? '- [' + String(s.title || s.bvid).replace(/[\[\]\\\r\n<>]/g, ' ') + '](https://www.bilibili.com/video/' + s.bvid + ')\n' + block(s.summary || '') : '- 来源标识保留在数据库中。'),
       r.omittedSources ? '本轮还有' + r.omittedSources + '条材料未提供给模型，不能视作已比较。' : '', ''].join('\n');

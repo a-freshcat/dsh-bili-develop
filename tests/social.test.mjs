@@ -7,14 +7,14 @@ import { join } from 'node:path';
 
 async function setup(t, options = {}) {
   const clock = { now: Date.parse('2026-10-23T12:00:00+08:00') };
-  const messages = [{ uid: options.owner ? '999' : '456', id: 'message-key-1', text: '你好，谢谢分享，可以聊一聊吗？', at: clock.now + 1000 }];
+  const messages = [{ uid: options.owner ? '999' : '456', id: 'message-key-1', text: options.text || '你好，谢谢分享，可以聊一聊吗？', at: clock.now + 1000 }];
   const sent = [], called = [];
   let lastPrompt = '';
   const f = fixture(t, { now: () => clock.now, neverIdle: options.neverIdle, output: (text, id) => {
     lastPrompt = text;
     if (options.badOutput) return 'not JSON';
     return JSON.stringify({ runId: id, score_delta: options.delta ?? 10, evaluation: '称呼礼貌且表达了感谢。',
-      evidence_quote: '谢谢分享', should_reply: options.noReply ? false : true, reply: options.noReply ? '' : '你好，欢迎一起聊聊。' });
+      evidence_quote: '谢谢分享', should_reply: options.noReply ? false : true, reply: options.noReply ? '' : '你好，欢迎一起聊聊。', expression_feedback: options.feedback });
   }, call: async (method, params) => {
     called.push(method);
     if (method === 'dm_inbox') return { accountUid: '123', messages };
@@ -32,13 +32,53 @@ async function setup(t, options = {}) {
     throw new Error('unexpected method: ' + method);
   } });
   await f.bind();
-  f.controller.configure({ dmEnabled: true, dmAutoSend: !!options.auto,
+  f.controller.configure({ dmEnabled: true, dmAutoSend: !!options.auto, learningEnabled: !!options.learning,
     ...(options.owner ? { ownerAccountEnabled: true, ownerAccountUid: '999', ownerAccountName: '使用者', ownerAttitudeEnabled: true } : {}) });
   f.controller.social.setAccount('123');
   if (options.owner) f.controller.social.contacts.put('123', '999', { score: 5 });
   const scan = async () => { await f.controller.dispatch({ action: 'dm_scan' }); await f.controller.social.job; };
   return { ...f, clock, messages, sent, called, scan, prompt: () => lastPrompt, social: f.controller.social };
 }
+
+test('private dialogue contributes a deidentified reflection source even without an explicit criticism', async t => {
+  const f = await setup(t, { learning: true, owner: true }); await f.scan();
+  const status = f.controller.feedback.status();
+  assert.ok(status.total >= 1, 'a processed private conversation must contribute a safe learning source');
+  assert.equal(status.privateConversations, 1); assert.equal(status.privateFeedback, 0);
+  const material = status.recent.find(r => r.scope === 'private_dialogue');
+  assert.ok(material); assert.equal(material.quote, ''); assert.equal(material.url, '');
+  assert.doesNotMatch(JSON.stringify(material), /谢谢分享|你好|使用者/); assert.equal(Object.hasOwn(material, 'uid'), false);
+  await f.scan(); assert.equal(f.controller.feedback.status().privateConversations, 1);
+  assert.equal(f.counters.prompt, 1); assert.equal(f.sent.length, 0);
+});
+
+test('semantic private feedback accepts a paraphrase outside the legacy phrases without another model turn', async t => {
+  const f = await setup(t, { learning: true, text: '谢谢分享。不过你每次都像照着稿子念，能不能自然一点？',
+    feedback: [{ code: 'less_formulaic', evidence_quote: '像照着稿子念' }] });
+  await f.scan(); const status = f.controller.feedback.status();
+  assert.ok(status.recent.some(r => r.code === 'less_formulaic'), 'a grounded semantic paraphrase must not depend on the old keyword list');
+  assert.equal(status.privateConversations, 1); assert.equal(status.privateFeedback, 1);
+  assert.ok(status.recent.some(r => r.code === 'less_formulaic'));
+  assert.doesNotMatch(JSON.stringify(status.recent), /照着稿子念|谢谢分享/);
+  assert.equal(f.counters.prompt, 1); assert.equal(f.sent.length, 0);
+});
+
+test('model failure does not discard the actual private conversation and explicit feedback already received', async t => {
+  const f = await setup(t, { learning: true, badOutput: true, text: '人不是这样回答的' });
+  await f.scan(); const status = f.controller.feedback.status();
+  assert.ok(status.total >= 1, 'model failure must not discard already received feedback');
+  assert.equal(status.privateConversations, 1); assert.equal(status.privateFeedback, 1);
+  assert.equal(f.social.contacts.recent('123')[0].state, 'failed'); assert.equal(f.sent.length, 0);
+});
+
+test('optional feedback failure does not invalidate an otherwise private-safe reply or score update', async t => {
+  const f = await setup(t, { learning: true });
+  f.controller.configure({ privacyBlockedTerms: ['日终可比较'] });
+  await f.scan(); assert.equal(f.social.contacts.recent('123')[0].state, 'draft');
+  assert.equal(f.social.contacts.person('123', '456').score, 60);
+  assert.equal(f.controller.feedback.status().total, 0); assert.match(f.controller.feedback.notice, /暂未保存/);
+  assert.equal(f.sent.length, 0);
+});
 
 test('one incoming text gets an evidence-based score and private draft in the sole original conversation', async t => {
   const f = await setup(t); await f.scan();

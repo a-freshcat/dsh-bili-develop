@@ -48,3 +48,59 @@ test('creative proposals require current real sources and their own switch, pres
     assert.equal(f.store.run(id).state, 'failed'); assert.equal(f.controller.learning.iteration().traits.length, 0);
   }
 });
+
+test('the exact human-answer criticism is captured without copying private wording into learning', async t => {
+  const f = await setup(t);
+  assert.equal(f.record({ scope: 'private_style', text: '人不是这样回答的', sourceId: 'human-answer-style' }), 1);
+  assert.equal(f.feedback.status().privateFeedback, 1);
+  assert.equal(f.feedback.status().recent[0].code, 'less_formulaic');
+  assert.equal(f.feedback.status().recent[0].quote, '');
+  assert.doesNotMatch(JSON.stringify(f.feedback.status().recent), /人不是这样回答的/);
+});
+
+test('semantic suggestions require a fixed category and exact current-message evidence; no private freeform payload crosses over', async t => {
+  const f = await setup(t), text = '谢谢分享，但你说的话我总要读两次才明白。私密邮箱test@example.invalid';
+  const source = { scope: 'private_style', text, sourceId: 'semantic-safety' };
+  assert.equal(f.record({ ...source, semantic: [{ code: 'replace_persona', evidence_quote: '谢谢分享' }, { code: 'clearer', evidence_quote: '不存在的原文' }] }), 0);
+  assert.equal(f.record({ ...source, semantic: [{ code: 'clearer', evidence_quote: '读两次才明白', summary: 'test@example.invalid', url: 'https://example.invalid' }] }), 1);
+  const rows = f.feedback.status().recent;
+  assert.doesNotMatch(JSON.stringify(rows), /读两次才明白|test@example|example\.invalid/);
+  assert.equal(rows[0].code, 'clearer'); assert.equal(rows[0].quote, '');
+});
+
+test('local private backfill is bounded, once-only, account scoped and does not send, rescore, or re-prompt', async t => {
+  const f = await setup(t), contacts = f.controller.social.contacts;
+  contacts.put('123', '456', { fan: true, score: 80 });
+  contacts.put('123', '789', { fan: false, score: 90 });
+  const put = (id, patch = {}) => contacts.saveMessage({ id, accountUid: '123', uid: '456', at: day, state: 'sent', text: '人不是这样回答的', ...patch });
+  put('backfill-one'); put('backfill-two', { state: 'failed', text: '这只是另一条普通私信。' });
+  put('outgoing-proactive', { kind: 'proactive' }); put('already-redacted', { state: 'redacted' }); put('unknown-person', { uid: '789' });
+  put('another-account', { accountUid: '999' });
+  await f.controller.dispatch({ action: 'feedback_private_scan' });
+  let status = f.feedback.status(); assert.equal(status.privateConversations, 1); assert.equal(status.privateFeedback, 1);
+  assert.equal(contacts.person('123', '456').score, 80); assert.equal(contacts.history('123', '456').length, 0);
+  assert.equal(contacts.message('backfill-one').text, '人不是这样回答的');
+  assert.equal(contacts.message('backfill-one').state, 'sent');
+  assert.equal(contacts.message('outgoing-proactive').feedbackCaptureVersion, undefined);
+  await f.controller.dispatch({ action: 'feedback_private_scan' }); f.clock.now += 86400000;
+  await f.controller.dispatch({ action: 'feedback_private_scan' });
+  assert.equal(f.feedback.status().total, 2); assert.equal(f.counters.prompt, 0); assert.equal(f.counters.read, 0);
+  assert.equal(f.store.db.prepare('SELECT COUNT(*) n FROM private_attempts').get().n, 0);
+  f.controller.social.setAccount('999'); status = f.feedback.status(); assert.equal(status.total, 0); assert.equal(status.recent.length, 0);
+});
+
+test('local private collection obeys learning switches and a neutral conversation is not counted as a criticism in daily review', async t => {
+  const f = await setup(t), contacts = f.controller.social.contacts;
+  contacts.put('123', '456', { fan: true });
+  const m = contacts.saveMessage({ id: 'neutral-private', accountUid: '123', uid: '456', at: day, state: 'draft', text: '今天聊得很开心。' });
+  f.controller.configure({ learningFeedbackEnabled: false });
+  assert.equal(f.feedback.capturePrivate(m), 0); assert.throws(() => f.feedback.scanPrivate(), { code: 'FEEDBACK_DISABLED' });
+  f.controller.configure({ learningFeedbackEnabled: true }); assert.equal(f.feedback.capturePrivate(m), 1);
+  f.clock.now += 86400000; const { id } = await f.controller.learning.review(); await f.controller.idle();
+  const run = f.store.run(id); assert.equal(run.state, 'completed');
+  assert.equal(run.learningReview.stats.conversations, 1); assert.equal(run.learningReview.stats.feedback, 0); assert.equal(run.learningReview.stats.videos, 0);
+  assert.doesNotMatch(run.promptText, /今天聊得很开心/);
+  const exported = await f.controller.learning.archive.export({ reviewId: id });
+  const markdown = readFileSync(join(f.workspacePath, exported.path), 'utf8');
+  assert.match(markdown, /私信对话复盘线索/); assert.doesNotMatch(markdown, /公开回复的表达建议|今天聊得很开心/);
+});

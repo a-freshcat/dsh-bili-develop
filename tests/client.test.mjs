@@ -18,6 +18,34 @@ function client(fetch) {
   return plugin;
 }
 
+test('dialogue-learning UI distinguishes private conversations from criticism and locally backfills without a model or platform call', async t => {
+  const f = fixture(t); await f.bind(); f.controller.configure({ learningEnabled: true }); f.controller.social.setAccount('123');
+  f.controller.social.contacts.put('123', '456', { fan: true });
+  f.controller.social.contacts.saveMessage({ id: 'ui-local-private', accountUid: '123', uid: '456', at: Date.now(), state: 'draft', text: '今天聊得很开心。' });
+  let plugin, settings, stateIndex = 0, refIndex = 0; const values = [], refs = [], effects = [], calls = [];
+  const React = { createElement: (type, props, ...children) => ({ type, props: props || {}, children: children.flat(Infinity) }),
+    useState(initial) { const i = stateIndex++; if (!(i in values)) values[i] = initial; return [values[i], v => { values[i] = typeof v === 'function' ? v(values[i]) : v; }]; },
+    useRef(initial) { const i = refIndex++; return refs[i] ||= { current: initial }; }, useEffect(fn) { effects.push(fn); } };
+  const scope = { window: { __ModuleLoader__: { load: m => { plugin = m.factory(() => React); } } },
+    fetch: async (_url, options) => { const input = JSON.parse(options.body); calls.push(input); return Response.json({ ok: true, value: await f.controller.dispatch(input) }); },
+    setTimeout, clearTimeout, setInterval: () => 1, clearInterval() {}, AbortController, Response, crypto: { randomUUID: () => 'feedback-ui-request' } };
+  scope.globalThis = scope; runInNewContext(readFileSync('client.js', 'utf8'), scope);
+  plugin.apply({ get: n => n === 'slots' ? { inject: (_n, cb) => cb(), register: (_o, fn) => { settings = fn; } } : { openSession() {} } });
+  const panel = settings({}), flat = n => n && typeof n === 'object' ? [n, ...n.children.flatMap(flat)] : [n];
+  const text = tree => flat(tree).filter(n => typeof n === 'string' || typeof n === 'number').join('');
+  const button = (tree, label) => flat(tree).find(n => n?.type === 'button' && text(n) === label);
+  const render = () => { stateIndex = 0; refIndex = 0; effects.length = 0; return panel.type(panel.props); };
+  render(); const cleanup = effects[0](); await new Promise(r => setImmediate(r)); let tree = render();
+  button(tree, '人设').props.onClick(); tree = render(); button(tree, '迭代').props.onClick(); tree = render();
+  assert.match(text(tree), /交流反馈与私信复盘素材（0份）/);
+  assert.equal(button(tree, '整理本地私信线索').props.disabled, false);
+  await button(tree, '整理本地私信线索').props.onClick(); await new Promise(r => setImmediate(r)); tree = render();
+  assert.match(text(tree), /交流反馈与私信复盘素材（1份）/); assert.match(text(tree), /私信表达反馈 0 · 私信对话复盘 1/);
+  const learningBlock = flat(tree).find(n => n?.type === 'details' && n.children.some(c => c?.type === 'summary' && text(c).startsWith('交流反馈与私信复盘素材')));
+  assert.ok(learningBlock); assert.doesNotMatch(text(learningBlock), /今天聊得很开心/);
+  assert.ok(calls.every(c => ['status', 'feedback_private_scan'].includes(c.action))); assert.equal(f.counters.prompt, 0); assert.equal(f.counters.read, 0); cleanup();
+});
+
 test('relationship controls default collapsed and off, independently save follow/proactive settings without launching any interaction', async t => {
   const f = fixture(t); await f.bind(); f.controller.social.setAccount('123');
   let plugin, settings, stateIndex = 0, refIndex = 0;

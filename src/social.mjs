@@ -135,6 +135,7 @@ export class Social {
       if (!known || person.blocked || actual.message?.id !== incoming.id || actual.message?.text !== incoming.text) continue;
       const m = this.contacts.reserveEvaluation({ id, platformId: incoming.id, accountUid: this.account, uid: incoming.uid,
         text: incoming.text, receivedAt: incoming.at, state: 'evaluating' }, this.store.config(), c.now());
+      try { c.feedback.capturePrivate(m); } catch (error) { c.feedback.notice = '本条交流素材暂未保存：' + errorView(error).message; }
       const payload = { message: { id: m.platformId, text: m.text }, person, isOwner: person.uid === ownerUid(this.store.config()), messageId: id };
       const reserved = this.store.start({ id, kind: 'dm', sessionId: binding.sessionId, accountUid: this.account, now: c.now() });
       const run = this.store.update(id, { dmPayload: payload });
@@ -157,8 +158,10 @@ export class Social {
     this.c.learning.checkOutput(v.reply, run.accountUid);
     this.c.privacy.check(v.reply, { session: run.sessionId, account: run.accountUid, recipient: run.dmPayload.person.uid });
     this.c.privacy.remember(run.id + ':output', run.sessionId, run.accountUid, run.dmPayload.person.uid, [v.evaluation, v.reply]);
-    this.c.feedback.record({ account: run.accountUid, sender: run.dmPayload.person.uid, sourceId: run.id,
-      text: run.dmPayload.message.text, scope: 'private_style' });
+    try {
+      this.c.feedback.record({ account: run.accountUid, sender: run.dmPayload.person.uid, sourceId: run.id,
+        text: run.dmPayload.message.text, scope: 'private_style', semantic: v.expression_feedback });
+    } catch (error) { this.c.feedback.notice = '本条表达线索暂未保存：' + errorView(error).message; }
     return this.store.transaction(() => {
       const m = this.contacts.message(id);
       assert(m && m.accountUid === run.accountUid, 'DM_RECORD', '私信记录与任务不匹配。');

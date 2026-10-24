@@ -1,6 +1,6 @@
 {
   "name": "dsh-bilibili-harness",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "DSH 桌面插件：指定工作区的单对话 B站浏览、受控评论及私信",
   "type": "module",

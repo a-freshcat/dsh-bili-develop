@@ -3,50 +3,84 @@ import { assert, errorView } from './errors.mjs';
 
 const digest = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const rules = [
-  ['less_formulaic', /ai味太重|太像ai|像机器人|机器人味|模板味|太模板化|像客服/giu, '考虑减少模板化开场和套话，让表达更自然；不要伪装成人类或编造经历。'],
+  ['less_formulaic', /ai味太重|太像ai|像机器人|机器人味|模板味|太模板化|像客服|人(?:类)?(?:一般|通常|都)?不(?:是|会)(?:这样|这么)(?:回答|说话|回复)|不像真人/giu, '考虑减少模板化开场和套话，让表达更自然；不要伪装成人类或编造经历。'],
   ['more_concise', /废话太多|太啰嗦|太罗嗦|说得太绕|太冗长|重复说|重复回答/gu, '考虑先说重点，减少重复和不必要的铺陈。'],
   ['clearer', /看不懂|没看懂|说清楚|不够清楚|解释不清/gu, '考虑用更具体、容易理解的表达，核对是否解释了关键依据。'],
   ['less_preachy', /太说教|别说教|不要说教|太官方|太生硬/gu, '考虑减少说教或过于官方的语气，保留基础人设要求的尊重与边界。'],
 ];
+const dialogue = ['dialogue_reflection', null, '已接收一份私信对话复盘线索；日终可比较表达是否自然、简洁、贴合语境。没有具体表达反馈时允许保持不变，不编造不足。'];
 
 export class Feedback {
   constructor(c) {
     this.c = c; this.s = c.store; this.db = this.s.db;
     this.db.exec('CREATE TABLE IF NOT EXISTS learning_feedback(id TEXT PRIMARY KEY,account_uid TEXT NOT NULL,at_ms INTEGER NOT NULL,dedup_key TEXT NOT NULL UNIQUE,data TEXT NOT NULL);');
     this.db.exec('CREATE INDEX IF NOT EXISTS feedback_account_time ON learning_feedback(account_uid,at_ms DESC,id DESC);');
+    this.db.exec("CREATE INDEX IF NOT EXISTS feedback_account_scope ON learning_feedback(account_uid,json_extract(data,'$.scope'));");
   }
   enabled() { const config = this.s.config(); return config.learningEnabled && config.learningFeedbackEnabled; }
-  record({ account, sender, sourceId, text, scope, bvid = '', url = '' }) {
+  record({ account, sender, sourceId, text, scope, bvid = '', url = '', semantic = [] }) {
     if (!this.enabled()) return 0;
-    assert(['public_reply', 'private_style'].includes(scope) && typeof text === 'string' && text.length <= 2000,
+    assert(['public_reply', 'private_style', 'private_dialogue'].includes(scope) && typeof text === 'string' && text.length <= 2000,
       'FEEDBACK_SOURCE', '交流反馈来源无效。');
     const window = this.s.window(this.s.config(), this.c.now());
     const count = Number(this.db.prepare('SELECT COUNT(*) n FROM learning_feedback WHERE account_uid=? AND at_ms>=? AND at_ms<?').get(account, window.start, window.end).n);
     if (count >= 50) return 0;
     let added = 0;
-    for (const [code, re, suggestion] of rules) {
+    const normalized = text.normalize('NFKC');
+    for (const [code, re, suggestion] of scope === 'private_dialogue' ? [dialogue] : rules) {
       if (count + added >= 50) break;
-      re.lastIndex = 0; const match = re.exec(text.normalize('NFKC')); if (!match) continue;
-      if (/(?:没有|并非|不是|不觉得|不认为)[^。！？]{0,8}$/.test(text.slice(0, match.index))) continue;
+      if (re) re.lastIndex = 0;
+      const match = re?.exec(normalized);
+      const grounded = scope === 'private_style' && Array.isArray(semantic) && semantic.slice(0, 2).some(r => r?.code === code &&
+        typeof r.evidence_quote === 'string' && r.evidence_quote.trim().length >= 2 && r.evidence_quote.length <= 80 && text.includes(r.evidence_quote));
+      if (re && !grounded && (!match || /(?:没有|并非|不是|不觉得|不认为)[^。！？]{0,8}$/.test(normalized.slice(0, match.index)))) continue;
       const key = digest([account, sender, code, window.start]), id = 'feedback-' + digest([account, scope, sourceId, code]).slice(0, 40);
       if (this.db.prepare('SELECT 1 FROM learning_feedback WHERE id=? OR dedup_key=?').get(id, key)) continue;
       // Only a fixed style category crosses the private/public boundary. No raw DM text or identity.
-      const value = { id, kind: 'feedback', scope, code, summary: suggestion, title: scope === 'public_reply' ? '他人对自己评论的公开回复' : '交流表达建议（已脱敏）',
+      const value = { id, kind: 'feedback', scope, code, summary: suggestion, title: scope === 'public_reply' ? '他人对自己评论的公开回复' : scope === 'private_dialogue' ? '私信对话复盘线索（已脱敏）' : '交流表达建议（已脱敏）',
         bvid: scope === 'public_reply' ? bvid : '', url: scope === 'public_reply' ? url : '', quote: scope === 'public_reply' ? match[0] : '',
         observedAt: new Date(this.c.now()).toISOString() };
       this.c.privacy.check(value.quote + '\n' + suggestion, { session: '' });
-      this.s.transaction(() => {
+      const write = () => {
         this.db.prepare('INSERT INTO learning_feedback VALUES(?,?,?,?,?)').run(id, account, this.c.now(), key, JSON.stringify(value));
         this.db.prepare('INSERT OR IGNORE INTO learning_observations VALUES(?,?,?,?,?)').run(id, account, this.c.now(), '', JSON.stringify(value));
         this.s.set('learningAccount', account);
-      }); added++;
+      };
+      if (this.db.isTransaction) write(); else this.s.transaction(write);
+      added++;
     }
     return added;
   }
+  capturePrivate(message) {
+    if (!this.enabled() || !message || message.kind === 'proactive' || message.feedbackCaptureVersion === 1 || !message.text?.trim() ||
+      message.accountUid !== this.c.social.account || ['redacted', 'ignored'].includes(message.state)) return 0;
+    const person = this.c.social.contacts.person(message.accountUid, message.uid), config = this.s.config();
+    if (!person || person.blocked || person.userBlocked || person.platformBlocked || !(person.fan || config.ownerAccountEnabled && person.uid === config.ownerAccountUid)) return 0;
+    return this.s.transaction(() => {
+      const source = { account: message.accountUid, sender: message.uid, sourceId: message.id, text: message.text };
+      const added = this.record({ ...source, scope: 'private_dialogue' }) + this.record({ ...source, scope: 'private_style' });
+      const latest = this.c.social.contacts.message(message.id);
+      if (latest) this.c.social.contacts.saveMessage({ ...latest, feedbackCaptureVersion: 1 });
+      return added;
+    });
+  }
+  scanPrivate() {
+    this.c.social.assertIdle();
+    assert(this.enabled(), 'FEEDBACK_DISABLED', '请先开启自主学习及交流学习。');
+    assert(!this.s.openRound(), 'RUN_BUSY', '请等待当前浏览轮次结束。');
+    const account = this.c.social.account;
+    assert(account, 'CONTACT_ACCOUNT', '请先检查当前登录账号。');
+    const rows = this.c.social.contacts.recent(account, 50);
+    let added = 0;
+    for (const m of rows) if (!['evaluating', 'sending'].includes(m.state)) added += this.capturePrivate(m);
+    this.notice = '已整理最近50条本地私信记录，新增' + added + '份脱敏交流素材；未重新评价、发送或读取B站历史。';
+    return { message: this.notice };
+  }
   status() {
-    const account = this.c.learning.account;
+    const account = this.c.social.account || this.c.learning.account;
+    const counts = Object.fromEntries(this.db.prepare("SELECT json_extract(data,'$.scope') scope,COUNT(*) n FROM learning_feedback WHERE account_uid=? GROUP BY json_extract(data,'$.scope')").all(account).map(r => [r.scope, Number(r.n)]));
     return { enabled: this.enabled(), busy: !!this.busy, notice: this.notice || '',
-      total: Number(this.db.prepare('SELECT COUNT(*) n FROM learning_feedback WHERE account_uid=?').get(account).n),
+      total: Object.values(counts).reduce((a, b) => a + b, 0), privateConversations: counts.private_dialogue || 0, privateFeedback: counts.private_style || 0, publicFeedback: counts.public_reply || 0,
       recent: this.db.prepare('SELECT f.data,r.review_id FROM learning_feedback f LEFT JOIN learning_review_sources r ON r.source_id=f.id WHERE account_uid=? ORDER BY at_ms DESC,id DESC LIMIT 10').all(account)
         .map(r => ({ ...JSON.parse(r.data), includedInReview: !!r.review_id })) };
   }

@@ -526,6 +526,7 @@ export class Controller {
       case 'learning_project': this.learning.project(); return { message: this.learning.projection?.state === 'saved' ? '工作区学习快照已更新。' : this.learning.projection?.message || '请先读取视频确认学习账号。' };
       case 'learning_export': return this.learning.archive.export(input);
       case 'feedback_scan': return this.feedback.scan();
+      case 'feedback_private_scan': return this.feedback.scanPrivate();
       case 'refresh_covers': return this.refreshCovers(input.offset, input.filters);
       case 'configure': return this.configure(input.config);
       case 'lookup_owner': return this.lookupOwner(input.uid);

@@ -6,7 +6,7 @@
 
 基于 DeepSeek Harness 桌面版 · 指定工作区 · 唯一汇总对话
 
-<code>v0.1.1</code> &nbsp; <code>DSH 桌面插件</code> &nbsp; <code>GPL-3.0-or-later</code>
+<code>v0.1.2</code> &nbsp; <code>DSH 桌面插件</code> &nbsp; <code>GPL-3.0-or-later</code>
 
 [下载与安装](#installation) · [使用手册](USER_GUIDE.md) · [安全说明](SECURITY.md) · [更新记录](CHANGELOG.md)
 
@@ -103,7 +103,8 @@ flowchart TD
 例如，对方回复“AI味太重”“太啰嗦”时，可以成为**表达反思候选**。日终会将它与之前的习惯、当前基础人设一起比较，模型可以接受、调整，也可以不采纳。
 
 - **公开回复**：只核对他人对自己已确认评论的直接回复，保留可追溯的公开来源。
-- **私信反馈**：仅派生固定的脱敏风格建议，不把原文、身份或联系方式写入学习来源。
+- **私信反馈**：在现有私信评价中按语义识别风格反馈，要求本条来信依据；固定短语作兜底，学习只保留固定类别建议，不保存原文、身份或联系方式。
+- **普通私信对话**：也保存脱敏复盘线索，与具体表达反馈分开展示；没有批评时允许保持不变。
 - **用户建议**：你给它方向与想法，由它在下次比较时自主取舍。
 
 <details>
@@ -119,6 +120,8 @@ flowchart TD
 </details>
 
 **面板入口：** `人设 → 迭代 / 表达 / 复盘 / 设置`
+
+在“设置”开启自主学习与“学习公开回复和私信对话”。“迭代”中的交流素材区分别统计公开反馈、私信风格与私信对话份数；已保存的近期私信可点“整理本地私信线索”补录，不重新调用模型、发信或评分。同一联系人每天的普通对话合并一份，具体风格类别另计，仍受每日素材上限约束。
 
 <a id="relationships"></a>
 ## 🐟 好感度与关系设计
@@ -222,7 +225,7 @@ flowchart TD
 
 **适配目标：** DSH桌面版 `0.2.1-rc.2`、Node.js24及兼容Python环境。包声明宿主范围为 `>=0.2.1-rc.2 <0.3.0`，其他版本需要另行验证。
 
-1. 在[Releases](https://github.com/a-freshcat/dsh-bili-develop/releases)下载 `dsh-bili-develop-0.1.1-source.zip`，核对同页SHA256，解压到长期保留的目录。
+1. 在[Releases](https://github.com/a-freshcat/dsh-bili-develop/releases)下载 `dsh-bili-develop-0.1.2-source.zip`，核对同页SHA256，解压到长期保留的目录。
 2. 在解压目录预览本地链接安装：
 
    ```powershell
@@ -245,7 +248,7 @@ flowchart TD
 <summary><strong>升级、运行包与卸载</strong></summary>
 
 - 已有本地链接安装会继续使用原数据和唯一对话，不要重复创建绑定。
-- 从0.1.0升级保留原数据和设置，没有新增Python依赖；更早版本请准备依赖以使用Brotli1.2.1安全版本。
+- 从0.1.0或0.1.1升级保留原数据和设置，没有新增Python依赖；更早版本请准备依赖以使用Brotli1.2.1安全版本。
 - `.tgz` 是运行包，供兼容的DSH包管理流程使用；本项目尚未发布到npm。源码ZIP包含安装和验证脚本。
 - 内部包名保持 `dsh-bilibili-harness`，GitHub仓库名为 `dsh-bili-develop`。
 - 卸载前先关闭相关功能，再从桌面profile移除该包依赖和bundle引用；不要删除整个profile或数据目录。
@@ -274,7 +277,7 @@ python -m unittest discover -s tests -p '*_test.py' -v
 
 可选本机转写另装 `python/requirements-audio.txt`，模型权重单独配置。Windows链接和进程回收测试需要可创建链接、查看本进程的原生环境；受限沙箱可能返回EPERM。
 
-0.1.1发布前通过272项Node与113项Python测试，以及隐私专项、依赖审计和洁净打包检查。测试使用合成账号与模拟SDK，没有为发布验证而真实关注、发送私信、发表评论或发布动态。平台回执不代表其他账号可见，仍需按提示核对。
+0.1.2发布前通过281项Node与113项Python测试，以及隐私专项和洁净打包检查，保留原依赖审计结果。测试使用合成账号与模拟SDK，没有为发布验证而真实关注、发送私信、发表评论或发布动态。平台回执不代表其他账号可见，仍需按提示核对。
 
 </details>
 
@@ -284,6 +287,6 @@ python -m unittest discover -s tests -p '*_test.py' -v
 
 **按自己的兴趣看，按实际依据评价，在一次次比较中慢慢形成自己的表达。**
 
-[开始使用](#installation) · [下载0.1.1](https://github.com/a-freshcat/dsh-bili-develop/releases/tag/v0.1.1)
+[开始使用](#installation) · [下载0.1.2](https://github.com/a-freshcat/dsh-bili-develop/releases/tag/v0.1.2)
 
 </div>

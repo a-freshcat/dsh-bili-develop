@@ -167,7 +167,7 @@ window.__ModuleLoader__.load({
       const feedbackArea = action => ['bind', 'probe', 'compact'].includes(action) ? 'binding' :
         action.startsWith('weekly_') ? 'weekly' :
         action.startsWith('learning_') ? 'learning' :
-        action === 'feedback_scan' ? 'learning' :
+        ['feedback_scan', 'feedback_private_scan'].includes(action) ? 'learning' :
         action.startsWith('history_') || action === 'delete_record' ? 'history' :
         ['reader_ping', 'install_python'].includes(action) ? 'reader' :
         ['audio_check', 'install_audio', 'cancel_audio', 'audio_cleanup', 'prepare_asr_model', 'cancel_asr_model'].includes(action) ? 'audio' :
@@ -677,11 +677,15 @@ window.__ModuleLoader__.load({
               h('summary', null, t.text), h('p', null, t.reason), h('p', { className: 'muted' }, '来源：',
                 t.sourceRefs?.length ? t.sourceRefs.map((s, i) => h(React.Fragment, { key: i }, s.url ? h('a', { href: s.url, target: '_blank', rel: 'noopener noreferrer' }, s.title || s.bvid) : h('span', null, s.title), ' ')) : '保留在对应日终复盘中。'))) :
               h('p', { className: 'muted' }, '尚未形成迭代人设；没有足够的新经历时可以保持不变。')),
-          personaView === 'iteration' && status.feedback && h('details', null, h('summary', null, '别人给的表达反馈（', status.feedback.total, '条）'),
+          personaView === 'iteration' && status.feedback && h('details', null, h('summary', null, '交流反馈与私信复盘素材（', status.feedback.total, '份）'),
             h('p', { className: 'muted' }, '只是反思候选，日终比较后由大肥鱼决定是否采纳；私信仅保留固定表达建议，不保存原文或身份。'),
             button('检查评论回复反馈', 'feedback_scan', {}, sendingBlocked || !status.feedback.enabled || !!browsing?.round),
+            button('整理本地私信线索', 'feedback_private_scan', {}, sendingBlocked || !status.feedback.enabled || !!browsing?.round),
+            h('p', { className: 'muted' }, '公开表达反馈 ', status.feedback.publicFeedback || 0, ' · 私信表达反馈 ', status.feedback.privateFeedback || 0, ' · 私信对话复盘 ', status.feedback.privateConversations || 0,
+              '。普通对话不代表批评；同一联系人每天的普通对话合并一份，具体风格线索另计。'),
+            !status.feedback.enabled && h('p', { className: 'muted' }, '自主学习或交流学习未开启，当前不采集新素材。'),
             status.feedback.notice && h('p', { className: 'notice' }, status.feedback.notice),
-            ...status.feedback.recent.map(f => h('p', { key: f.id }, f.scope === 'public_reply' ? '公开回复 · ' : '交流建议（已脱敏） · ', f.summary,
+            ...status.feedback.recent.map(f => h('p', { key: f.id }, f.scope === 'public_reply' ? '公开回复 · ' : f.scope === 'private_dialogue' ? '私信对话复盘（已脱敏） · ' : '私信风格线索（已脱敏） · ', f.summary,
               f.quote ? ' · “' + f.quote + '”' : '', f.includedInReview ? ' · 已进入复盘' : ' · 待日终比较',
               f.url && h('a', { href: f.url, target: '_blank', rel: 'noopener noreferrer' }, ' 查看来源')))),
           personaView === 'iteration' && h('details', null, h('summary', null, '反思中的不足与创意想法'),
@@ -691,7 +695,7 @@ window.__ModuleLoader__.load({
               h('p', null, '想法：', i.idea), h('p', null, '下次的小实验：', i.trial), h('p', { className: 'muted' }, i.reason)))),
           h('div', { id: 'bili-learning-settings', hidden: personaView !== 'settings' },
             checkbox('开启自主学习与日终比较迭代', 'learningEnabled'),
-            checkbox('把他人的回复作为表达反思候选（私信仅脱敏建议）', 'learningFeedbackEnabled'),
+            checkbox('学习公开回复和私信对话（仅保留脱敏线索）', 'learningFeedbackEnabled'),
             checkbox('反思时提出不足与创意想法，保存到原工作区', 'learningCreativeIdeas'),
             timeField('日终复盘时间（比较上一完整日）', 'learningDailyTime'),
             field('每天最多复盘调用（0停止复盘，含补做历史日）', 'learningDailyReviewLimit', 'number'),
