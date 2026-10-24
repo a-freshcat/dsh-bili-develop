@@ -1,0 +1,2 @@
+# Optional: local CPU/int8 speech transcription. Model files are provisioned separately.
+faster-whisper==1.2.1

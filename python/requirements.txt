@@ -1,0 +1,5 @@
+bilibili-api-python==17.4.2
+qrcode[pil]==8.2
+httpx==0.28.1
+# CVE-2026-111497: never admit the vulnerable transitive decoder.
+brotli==1.2.1
