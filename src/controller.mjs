@@ -6,6 +6,7 @@ import { privatePrompt } from './contacts.mjs';
 import { Social } from './social.mjs';
 import { Comments } from './comments.mjs';
 import { Interactions } from './interactions.mjs';
+import { OwnerMentions } from './owner-mentions.mjs';
 import { Learning } from './learning.mjs';
 import { Weekly } from './weekly.mjs';
 import { History } from './history.mjs';
@@ -46,6 +47,7 @@ export class Controller {
     this.social = new Social(this);
     this.comments = new Comments(this);
     this.interactions = new Interactions(this);
+    this.ownerMentions = new OwnerMentions(this);
     this.learning = new Learning(this);
     this.discovery = new Discovery(this);
     this.weekly = new Weekly(this);
@@ -54,7 +56,7 @@ export class Controller {
     this.feedback = new Feedback(this);
     this.relationships = new Relationships(this);
   }
-  async status({ offset = 0, contactsOffset = 0, contactQuery = '', learningOffset = 0, learningView = {}, weeklyOffset = 0, filters = {} } = {}) {
+  async status({ offset = 0, contactsOffset = 0, contactQuery = '', privateView = {}, interactionView = {}, learningOffset = 0, learningView = {}, weeklyOffset = 0, filters = {} } = {}) {
     assert(Number.isInteger(offset) && offset >= 0 && offset <= 1000000, 'INVALID_PAGE', '分页参数无效。');
     return {
       version, mode: this.store.config().commentMode === 'preview' ? 'preview_only' : 'controlled_comments',
@@ -74,9 +76,10 @@ export class Controller {
       audio: { budget: this.store.audioBudget(this.store.config(), this.now()), environment: this.audioEnvironment || { state: 'unchecked' },
         preparedModel: this.preparedModel || null },
       covers: this.coverState || { state: 'idle' },
-      social: this.social.status({ contactsOffset, contactQuery }),
+      social: this.social.status({ contactsOffset, contactQuery, privateView }),
       comments: this.comments.status(),
-      interactions: this.interactions.status(),
+      interactions: this.interactions.status(interactionView),
+      ownerMentions: this.ownerMentions.status(),
       learning: this.learning.status(learningOffset, learningView),
       weekly: this.weekly.status(weeklyOffset),
     };
@@ -92,6 +95,7 @@ export class Controller {
     this.relationships.configured(previous, config);
     this.comments.configured(previous, config);
     this.interactions.configured(previous, config);
+    this.ownerMentions.configured(previous, config);
     if (previous.pythonPath !== config.pythonPath) this.resetReader();
     if (previous.pythonPath !== config.pythonPath || previous.asrModelPath !== config.asrModelPath)
       this.audioEnvironment = { state: 'unchecked', message: '设置已变更，请重新检查音频环境。' };
@@ -527,6 +531,7 @@ export class Controller {
       case 'learning_export': return this.learning.archive.export(input);
       case 'feedback_scan': return this.feedback.scan();
       case 'feedback_private_scan': return this.feedback.scanPrivate();
+      case 'owner_mentions_scan': return this.ownerMentions.scan();
       case 'refresh_covers': return this.refreshCovers(input.offset, input.filters);
       case 'configure': return this.configure(input.config);
       case 'lookup_owner': return this.lookupOwner(input.uid);
@@ -615,5 +620,5 @@ export class Controller {
   deleteRecord(id) {
     return this.history.remove([this.store.run(requestIdOf(id))]);
   }
-  close() { this.closed = true; this.scheduler.close(); this.social.close(); this.comments.close(); this.learning.close(); this.weekly.close(); this.feedback.close(); this.relationships.close(); this.installAbort?.abort(); this.resetReader(); }
+  close() { this.closed = true; this.scheduler.close(); this.social.close(); this.comments.close(); this.learning.close(); this.weekly.close(); this.feedback.close(); this.relationships.close(); this.ownerMentions.close(); this.installAbort?.abort(); this.resetReader(); }
 }

@@ -75,6 +75,7 @@ export class History {
       for (const r of runs) {
         this.c.comments.drop(r.id);
         this.s.db.prepare('DELETE FROM interaction_scans WHERE source_id=?').run(r.id);
+        if (r.interactionOrigin === 'notification') this.s.db.prepare('DELETE FROM interaction_scans WHERE source_id=?').run(r.sourceRunId);
         this.s.db.prepare('DELETE FROM runs WHERE id=?').run(r.id);
       }
       const pending = [...new Map([...previous, ...jobs].map(j => [j.id, j])).values()];

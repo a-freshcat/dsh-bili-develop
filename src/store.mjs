@@ -29,7 +29,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   commentMode: 'preview', dailyCommentLimit: 5, perRoundCommentLimit: 1, commentMinIntervalSeconds: 300,
   commentMentionsEnabled: false, dailyMentionLimit: 5, mentionsPerComment: 1, mentionMinIntervalSeconds: 3600,
   mentionTargets: [],
-  interactionKeywords: [], interactionTopLimit: 1, interactionSubLimit: 1, dailyInteractionEvaluationLimit: 20,
+  interactionKeywords: [], ownerCommentReplyEnabled: false, ownerMentionPollSeconds: 120, interactionTopLimit: 1, interactionSubLimit: 1, dailyInteractionEvaluationLimit: 20,
   learningEnabled: false, learningDailyTime: '00:10', learningDailyReport: false,
   learningReportDetail: 'brief', learningDirectionSuggestions: true, learningAdvice: '',
   learningDailyReviewLimit: 3,

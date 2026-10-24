@@ -80,5 +80,5 @@ export async function apply(ctx) {
     path: API_PATH, methods: ['POST'], requestBody: 'buffered', fetch: makeHandler(controller),
   }), 'bilibili-harness: authenticated API');
   ctx.effect(() => () => controller.close(), 'bilibili-harness: dispose');
-  controller.recover().finally(() => { if (!controller.closed) { controller.scheduler.start(); controller.social.start(); controller.comments.start(); controller.learning.start(); controller.weekly.start(); controller.feedback.start(); controller.relationships.start(); } }).catch(() => {});
+  controller.recover().finally(() => { if (!controller.closed) { controller.scheduler.start(); controller.social.start(); controller.comments.start(); controller.learning.start(); controller.weekly.start(); controller.feedback.start(); controller.relationships.start(); controller.ownerMentions.start(); } }).catch(() => {});
 }

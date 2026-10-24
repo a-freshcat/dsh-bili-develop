@@ -68,6 +68,23 @@ def audio_url(url):
     return url
 
 
+def select_audio_url(choices):
+    """Prefer low bandwidth, but try signed backups under the same URL policy."""
+    tracks = [row for row in choices[:20] if isinstance(row, dict)] if isinstance(choices, list) else []
+    tracks.sort(key=lambda row: row.get('bandwidth') if type(row.get('bandwidth')) is int and row['bandwidth'] > 0 else float('inf'))
+    for row in tracks:
+        backups = row.get('backupUrl') or row.get('backup_url') or []
+        urls = [row.get('baseUrl') or row.get('base_url')] + (backups[:10] if isinstance(backups, list) else [])
+        for url in urls:
+            if not isinstance(url, str):
+                continue
+            try:
+                return audio_url(url)
+            except AudioError:
+                continue
+    raise AudioError('AUDIO_URL', '平台主音轨及备用地址均不符合HTTPS下载规则；未获取音频，可稍后重试。')
+
+
 async def download(url, target):
     audio_url(url)
     # No redirects/cookies: the signed media URL already grants access.
@@ -170,8 +187,7 @@ async def run(obj, params, data_dir, account_uid):
     choices = (download_info.get("dash") or {}).get("audio") or []
     if not choices:
         raise AudioError("AUDIO_UNAVAILABLE", "平台没有返回可用的独立音轨；首版暂不处理合并音视频。")
-    selected = min(choices, key=lambda row: row.get("bandwidth", 0))
-    url = audio_url(selected.get("baseUrl") or selected.get("base_url") or "")
+    url = select_audio_url(choices)
     cache = data_dir / "tmp"
     cache.mkdir(parents=True, exist_ok=True)
     if cache.is_symlink() or cache.resolve().parent != data_dir.resolve():

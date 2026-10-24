@@ -23,7 +23,7 @@ export function configOf(input, previous) {
     'autoFollowEnabled', 'autoFollowDailyLimit', 'autoFollowMinIntervalSeconds', 'dmProactiveEnabled', 'dmProactiveDailyLimit',
     'commentMode', 'dailyCommentLimit', 'perRoundCommentLimit', 'commentMinIntervalSeconds', 'commentMentionsEnabled',
     'dailyMentionLimit', 'mentionsPerComment', 'mentionMinIntervalSeconds', 'mentionTargets',
-    'interactionKeywords', 'interactionTopLimit', 'interactionSubLimit', 'dailyInteractionEvaluationLimit',
+    'interactionKeywords', 'ownerCommentReplyEnabled', 'ownerMentionPollSeconds', 'interactionTopLimit', 'interactionSubLimit', 'dailyInteractionEvaluationLimit',
     'learningEnabled', 'learningDailyTime', 'learningDailyReport', 'learningReportDetail', 'learningDirectionSuggestions', 'learningAdvice', 'learningDailyReviewLimit', 'learningFeedbackEnabled', 'learningCreativeIdeas',
     'weeklyAutoDraft', 'weeklyDay', 'weeklyTime', 'weeklyMinSources', 'weeklyDailyDraftLimit', 'weeklyDailyPublishLimit', 'weeklyMinIntervalHours', 'weeklyAutoImage']);
   assert(Object.keys(input).every(k => allowed.has(k)), 'INVALID_CONFIG', '包含当前版本不支持的设置。');
@@ -37,6 +37,11 @@ export function configOf(input, previous) {
   c.privacyBlockedTerms = [...new Set(c.privacyBlockedTerms.map(t => t.trim()))];
   c.learningFeedbackEnabled ??= true;
   c.learningCreativeIdeas ??= true;
+  c.ownerCommentReplyEnabled ??= false;
+  c.ownerMentionPollSeconds ??= 120;
+  assert(Number.isInteger(c.ownerMentionPollSeconds) && c.ownerMentionPollSeconds >= 60 && c.ownerMentionPollSeconds <= 3600,
+    'INVALID_CONFIG', '@通知检查间隔需要为60～3600秒。');
+  assert(typeof c.ownerCommentReplyEnabled === 'boolean', 'INVALID_CONFIG', '使用者评论区@回复开关无效。');
   c.autoFollowEnabled ??= false; c.dmProactiveEnabled ??= false;
   c.autoFollowDailyLimit ??= 3; c.autoFollowMinIntervalSeconds ??= 3600; c.dmProactiveDailyLimit ??= 3;
   assert(typeof c.learningFeedbackEnabled === 'boolean', 'INVALID_CONFIG', '交流反馈学习开关无效。');

@@ -288,7 +288,7 @@ async def dispatch(method, params):
             return await weekly.dispatch(method, params, credential(), DATA)
         except weekly.PublishError as error:
             raise ReadError(error.code, str(error)) from None
-    if method in ("comment_probe", "comment_publish", "comment_verify", "comment_feedback", "interaction_scan", "comment_reply_probe", "comment_reply_publish", "comment_reply_verify"):
+    if method in ("comment_probe", "comment_publish", "comment_verify", "comment_feedback", "interaction_scan", "owner_mentions", "comment_reply_probe", "comment_reply_publish", "comment_reply_verify"):
         module = publishing_module()
         try:
             return await module.dispatch(method, params, credential())

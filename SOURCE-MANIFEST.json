@@ -1,5 +1,5 @@
 {
-  "version": "0.1.2",
+  "version": "0.1.3",
   "files": [
     {
       "path": ".gitignore",
@@ -8,8 +8,8 @@
     },
     {
       "path": "CHANGELOG.md",
-      "bytes": 3588,
-      "sha256": "1b89efda796c41ba3f643e92e7f7733d8bad9bb4caf61dd9b14462e77fbd0c6e"
+      "bytes": 5520,
+      "sha256": "5c77906c29fdd4b069acfde45029451725457ab3a30a45b526066e8d464d45db"
     },
     {
       "path": "LICENSE",
@@ -18,13 +18,13 @@
     },
     {
       "path": "README.md",
-      "bytes": 16604,
-      "sha256": "d65d084ab902cbbf3d25ba662a5eb8ddf0909d299067e4ca603bc7b570aec526"
+      "bytes": 18022,
+      "sha256": "b67d585cc253759d0e9f1eb77554ae4b248c2bd75b2f79a1dd71abdeb15d2398"
     },
     {
       "path": "SECURITY.md",
-      "bytes": 6409,
-      "sha256": "376a14d25e91539e27f65cbbcd40dd8bc1edd91f73bbf2100cbe2e3df741aaa1"
+      "bytes": 7176,
+      "sha256": "30ca9e94c1e35faf1685f1aa1ba4194ca3e56b62e653705a8044ef0eb1662f1a"
     },
     {
       "path": "THIRD_PARTY_NOTICES.md",
@@ -33,13 +33,13 @@
     },
     {
       "path": "USER_GUIDE.md",
-      "bytes": 12039,
-      "sha256": "d9f2c60ca67bf527446bc74544ed86ec892203667511a22cc99e5105072ad780"
+      "bytes": 14765,
+      "sha256": "7313941fe0be9fb563880f8e38bde09ae3f31a7d513d5a2459e2dad3c977da19"
     },
     {
       "path": "client.js",
-      "bytes": 126730,
-      "sha256": "5970ee6896612469033aa08b5e1d8b5201c91bb6de2a52ab224cddf29257243f"
+      "bytes": 143766,
+      "sha256": "99cde978d3e6664d61866c3554ba3f32a71b76125d74bd790a9772bd35630aba"
     },
     {
       "path": "cordis.patch.yml",
@@ -49,7 +49,7 @@
     {
       "path": "docs/dependency-audit.json",
       "bytes": 3196,
-      "sha256": "9cba4271fc045f09abc615c090b89f5228bb68c52371a7fb94ec963af5501c39"
+      "sha256": "ddc322958f525d5a59c6322379c34005ae0ba16ff9b8bbb6bc11ddf818c676e5"
     },
     {
       "path": "docs/performance-0.1.1.json",
@@ -63,18 +63,18 @@
     },
     {
       "path": "index.js",
-      "bytes": 5290,
-      "sha256": "b37a3cca8c41b298d599d2a0a7f080f4648d4044356e88bbbf15574d54f6621d"
+      "bytes": 5324,
+      "sha256": "908855989bb95970e62cfc0c66022b70e6770dc869cbdaca2a64e3f09743c3a8"
     },
     {
       "path": "package.json",
       "bytes": 1552,
-      "sha256": "cc32589c5c180c7dce04c581303922d0170642136bebd6622ea8be27bb93cb10"
+      "sha256": "c41498bf582366619a7a9fe632c02be1f2f1d8498edc6ef5a89750a8fbc0e2fb"
     },
     {
       "path": "python/audio.py",
-      "bytes": 9563,
-      "sha256": "c88bf66d8ef67371ac0c64230beb50fb28525019bad5f23df66fec98bd8f285e"
+      "bytes": 10349,
+      "sha256": "d39e1e9322494ecfe096c17aa2efcc0bcc504cea0092b1923136409fc281e84d"
     },
     {
       "path": "python/community.py",
@@ -103,13 +103,13 @@
     },
     {
       "path": "python/publishing.py",
-      "bytes": 17618,
-      "sha256": "c7e1d9c476b3ace70eb1fe8ec663dd8b467acdb4315e643f7c4d4c2e104a1030"
+      "bytes": 22516,
+      "sha256": "058636ccc54821da81e51b377c4832a3d37c479e28740f1390519a8c9539ce21"
     },
     {
       "path": "python/reader.py",
-      "bytes": 19256,
-      "sha256": "a88fd3948fee9afcdf11af122f392d34f5005ee06459c38813df26c10855736a"
+      "bytes": 19274,
+      "sha256": "585f617ecf86a2c98fc70b2f03ed8d1ef95eedb74aca03f71f6ead16d244ee17"
     },
     {
       "path": "python/relationships.py",
@@ -188,8 +188,8 @@
     },
     {
       "path": "src/comments.mjs",
-      "bytes": 23440,
-      "sha256": "7e40d8ee1c73f0558fc6705a2cc9af588cc17ad11edc355039a4fac3e367695e"
+      "bytes": 23599,
+      "sha256": "3791fb57cfb5217911300608d958f3c1ca122b7d2ed05c7f2c93f862ea54fb65"
     },
     {
       "path": "src/community.mjs",
@@ -198,18 +198,18 @@
     },
     {
       "path": "src/contacts.mjs",
-      "bytes": 11339,
-      "sha256": "89c4a8107f8ece33b5e2ae8219fbd5499528d406e51c708cb91f18d91cd190af"
+      "bytes": 11997,
+      "sha256": "2471fd9a421419eaf8b130f76548f9df67e601a31642ca3bca47db1dbc9d605b"
     },
     {
       "path": "src/controller.mjs",
-      "bytes": 40444,
-      "sha256": "f42656c764aaafe425ed92ae12bdb084c5a1512f3fa1557130c09abca7082769"
+      "bytes": 40815,
+      "sha256": "4c2c13da54a429966b24e42973b9690a245e020a3bc108de41b64ce08c02623e"
     },
     {
       "path": "src/decision.mjs",
-      "bytes": 20400,
-      "sha256": "a7591f963cb15c616ae290e2f6f0cb6ce5440c1ea7ddf248acac1bb89021c407"
+      "bytes": 20849,
+      "sha256": "a2db36a86c87c181c9ce865cfd96323f87718a075bfc6a508359c715a23b9c42"
     },
     {
       "path": "src/dependencies.mjs",
@@ -238,8 +238,8 @@
     },
     {
       "path": "src/history.mjs",
-      "bytes": 7577,
-      "sha256": "9ca15ff4ea7cf3f9f433b82ca37827e54ae54bef4ea7d82a60dd705d153caf94"
+      "bytes": 7718,
+      "sha256": "83d7721a721deff743056fbaa5e4e9a0e4b2c9d86c2a21244358e0d7d573939c"
     },
     {
       "path": "src/host.mjs",
@@ -248,8 +248,8 @@
     },
     {
       "path": "src/interactions.mjs",
-      "bytes": 9727,
-      "sha256": "8723cf1c153f3377432c400f29e6da4f4506189025dfecd8024b0cb731d2fef8"
+      "bytes": 13732,
+      "sha256": "2c31e9702b1f1b755854d99a29e3f8b519f2038ee2a8c99a49d9991bb0ddc4d2"
     },
     {
       "path": "src/learning-archive.mjs",
@@ -272,6 +272,11 @@
       "sha256": "436f8f15b6ff3dbc31b5242c0fdb8df6563ad8f92e40fcf235ef13728d78e9b9"
     },
     {
+      "path": "src/owner-mentions.mjs",
+      "bytes": 6050,
+      "sha256": "baa59edc2f4b6b3192d2a916848f2966b10b52a1f74b189e004813534b98cca9"
+    },
+    {
       "path": "src/owner.mjs",
       "bytes": 1908,
       "sha256": "924822c5be859b0c165bf31c96b4d88918023e6e051014614ade6ca1f0c66f10"
@@ -283,8 +288,8 @@
     },
     {
       "path": "src/python.mjs",
-      "bytes": 10634,
-      "sha256": "16a73ef2231a6f0bb3ff32401fc61168248bcb9a3c098d80acbdc5bf9bd754d7"
+      "bytes": 10652,
+      "sha256": "4f4865c3ee99d01e2b90ec602aa0061cf7225bc4a88d78d0cfe36e9c99d1f1cd"
     },
     {
       "path": "src/relationships.mjs",
@@ -298,13 +303,13 @@
     },
     {
       "path": "src/social.mjs",
-      "bytes": 18890,
-      "sha256": "cc37e9a06c5c59a0df07e65f3bde0762819c8439e02a7432049b155a4eeefb39"
+      "bytes": 21211,
+      "sha256": "3af84ea3bcc8f764f069cb7748407ecd423fad25bbc5d647315e7c344a476cb6"
     },
     {
       "path": "src/store.mjs",
-      "bytes": 13562,
-      "sha256": "54dd9b70d404f3e63050f94c4b24e667b60002ea2e0f83c6401fac2e870165e5"
+      "bytes": 13625,
+      "sha256": "75454e209b49c58d8d63dc64257472b2723ced8d72708bb15f3bdec191b170a7"
     },
     {
       "path": "src/tags.mjs",
@@ -333,13 +338,13 @@
     },
     {
       "path": "tests/audio_test.py",
-      "bytes": 6802,
-      "sha256": "89f761b5b999a19624bbdd7405f7344b08c9eed9916dbf4018b0b3aae667f49c"
+      "bytes": 8810,
+      "sha256": "1964e43bb25c25be98aefdbf038a6790cbfc0647069b37704ebc84aae0c3781e"
     },
     {
       "path": "tests/client.test.mjs",
-      "bytes": 56705,
-      "sha256": "36dbd89896a72a8ace5029caa68dff3fe0f0f426d809d063dc3ce27f68f2df8f"
+      "bytes": 59562,
+      "sha256": "b5e5e0a25ccf47a321eff4042eccdc08cc2cb62594718a665cd8e2ea95cd2fa5"
     },
     {
       "path": "tests/comments.test.mjs",
@@ -428,8 +433,8 @@
     },
     {
       "path": "tests/interactions.test.mjs",
-      "bytes": 11273,
-      "sha256": "37a765b642f47ee5a961ae0ac31ff19de27b1293139a105d869bea50c0d05a76"
+      "bytes": 16168,
+      "sha256": "d99313a8bb835017c00648da452316ace8da7cbd917b718d24ce5fb8152431ab"
     },
     {
       "path": "tests/learning-archive.test.mjs",
@@ -450,6 +455,11 @@
       "path": "tests/model_setup_test.py",
       "bytes": 5612,
       "sha256": "c6da7652070e3d02b2a58c170d156327f813453ac82242d7902631688ffcef49"
+    },
+    {
+      "path": "tests/owner-mentions.test.mjs",
+      "bytes": 7290,
+      "sha256": "42c53083c705e20392d2219136f0d4783cf8d94361158421203ae51c0b5a664c"
     },
     {
       "path": "tests/performance.test.mjs",
@@ -473,8 +483,8 @@
     },
     {
       "path": "tests/publishing_test.py",
-      "bytes": 23237,
-      "sha256": "c2ae027be6959b095a4a663d9aeb07eca5679c5dcf9598850ece4d78e40d0a7d"
+      "bytes": 26971,
+      "sha256": "d78ebb6656410d0393529c77a493d91e1f1123cea37c71f14853114e36ce60df"
     },
     {
       "path": "tests/reader_test.py",
@@ -495,6 +505,21 @@
       "path": "tests/scheduler.test.mjs",
       "bytes": 18579,
       "sha256": "1c0fb6d40fdb997e4c2242b288f52fe480fc2354080d2bfd512f8e53d3fb83d2"
+    },
+    {
+      "path": "tests/settings-harness.mjs",
+      "bytes": 2102,
+      "sha256": "f933e8211dd8387a2d3db8e95f039fa4192e15656e56d3ed805b2a0a017225a8"
+    },
+    {
+      "path": "tests/settings-layout.test.mjs",
+      "bytes": 5434,
+      "sha256": "b79fe09270385e18951c717d0b94af23dea8f1bfd6210a4f0ba6234488e4c1ea"
+    },
+    {
+      "path": "tests/social-groups.test.mjs",
+      "bytes": 4004,
+      "sha256": "9d47872664458cccf8897f274072372933d5a01abbcb5548f9914532d359efd1"
     },
     {
       "path": "tests/social.test.mjs",

@@ -64,6 +64,7 @@ export class Contacts {
       CREATE INDEX IF NOT EXISTS private_account ON private_messages(account_uid,at_ms);
       CREATE TABLE IF NOT EXISTS private_attempts(id TEXT PRIMARY KEY,account_uid TEXT NOT NULL,uid TEXT NOT NULL,at_ms INTEGER NOT NULL);
       CREATE INDEX IF NOT EXISTS private_message_account_time ON private_messages(account_uid,at_ms DESC,id DESC);
+      CREATE INDEX IF NOT EXISTS private_person_messages ON private_messages(account_uid,uid,at_ms DESC,id DESC,state) WHERE state<>'redacted';
       CREATE INDEX IF NOT EXISTS private_message_kind_time ON private_messages(account_uid,json_extract(data,'$.kind'),at_ms);
       CREATE INDEX IF NOT EXISTS private_attempt_account_time ON private_attempts(account_uid,at_ms);
       CREATE INDEX IF NOT EXISTS private_attempt_person_time ON private_attempts(account_uid,uid,at_ms);
@@ -112,6 +113,12 @@ export class Contacts {
   }
   recent(account, limit = 20) { return this.db.prepare("SELECT data FROM private_messages WHERE account_uid=? AND state<>'redacted' ORDER BY at_ms DESC,id DESC LIMIT ?")
     .all(account, limit).map(r => JSON.parse(r.data)); }
+  threads(account) { return this.db.prepare(`SELECT uid,COUNT(*) AS total,SUM(state='draft') AS drafts,MAX(at_ms) AS latestAt
+    FROM private_messages WHERE account_uid=? AND state<>'redacted' GROUP BY uid`).all(account); }
+  messagePage(account, uid, offset = 0, limit = 10) {
+    return this.db.prepare("SELECT data FROM private_messages WHERE account_uid=? AND uid=? AND state<>'redacted' ORDER BY at_ms DESC,id DESC LIMIT ? OFFSET ?")
+      .all(account, uid, limit, offset).map(r => JSON.parse(r.data));
+  }
   budget(account, uid, config, now) {
     const window = this.store.window(config, now);
     const row = this.db.prepare('SELECT COUNT(*) AS n,COALESCE(SUM(uid=?),0) AS person,MAX(at_ms) AS latest FROM private_attempts WHERE account_uid=? AND at_ms>=? AND at_ms<?')

@@ -25,7 +25,7 @@ export class Social {
     if (this.account && ownerUid(after)) this.contacts.put(this.account, ownerUid(after), { name: after.ownerAccountName });
     this.store.set('dmNextPoll', this.c.now() + after.dmPollSeconds * 1000);
   }
-  status({ contactsOffset = 0, contactQuery = '' } = {}) {
+  status({ contactsOffset = 0, contactQuery = '', privateView = {} } = {}) {
     assert(Number.isInteger(contactsOffset) && contactsOffset >= 0 && contactsOffset <= 1000000 &&
       typeof contactQuery === 'string' && contactQuery.length <= 100, 'CONTACT_PAGE', '联系人查询无效。');
     const config = this.store.config(), people = this.contacts.all(this.account), uid = ownerUid(config);
@@ -34,17 +34,38 @@ export class Social {
     const annotate = p => ({ ...p, eligibility: eligibility(p, people, config, ranks) });
     const others = people.filter(p => p.uid !== uid).sort((a, b) => b.score - a.score || (BigInt(a.uid) < BigInt(b.uid) ? -1 : 1))
       .filter(p => !contactQuery || p.uid.includes(contactQuery) || p.name.includes(contactQuery));
+    assert(privateView && typeof privateView === 'object' && !Array.isArray(privateView) &&
+      Object.keys(privateView).every(k => ['uid', 'offset', 'peopleOffset', 'q', 'account'].includes(k)), 'DM_PAGE', '私信会话查询格式无效。');
+    let view = { uid: '', offset: 0, peopleOffset: 0, q: '', account: '', ...privateView };
+    assert(typeof view.uid === 'string' && typeof view.account === 'string' && typeof view.q === 'string' && view.q.length <= 100 && !/[\r\n\0]/.test(view.q) &&
+      [view.offset, view.peopleOffset].every(n => Number.isInteger(n) && n >= 0 && n <= 1000000), 'DM_PAGE', '私信会话分页或搜索格式无效。');
+    uidOf(view.uid, true); uidOf(view.account, true);
+    if (view.account && view.account !== this.account) view = { uid: '', offset: 0, peopleOffset: 0, q: '', account: this.account };
+    view.account = this.account; view.q = view.q.trim();
+    const byUid = new Map(people.map(p => [p.uid, p]));
+    const threads = this.contacts.threads(this.account).map(row => ({ uid: row.uid, name: byUid.get(row.uid)?.name || '',
+      isOwner: row.uid === uid, total: Number(row.total), drafts: Number(row.drafts), latestAt: Number(row.latestAt) }));
+    const ownerThread = uid && this.account ? threads.find(p => p.uid === uid) || { uid, name: config.ownerAccountName || '', isOwner: true, total: 0, drafts: 0, latestAt: null } : null;
+    const sorted = threads.filter(p => !p.isOwner).sort((a, b) => b.latestAt - a.latestAt || a.uid.localeCompare(b.uid));
+    const filtered = sorted.filter(p => !view.q || p.uid.includes(view.q) || p.name.toLowerCase().includes(view.q.toLowerCase()));
+    const selected = (view.uid === ownerThread?.uid ? ownerThread : threads.find(p => p.uid === view.uid)) || ownerThread || sorted[0] || null;
+    view.uid = selected?.uid || '';
+    view.offset = Math.min(view.offset, Math.max(0, Math.ceil((selected?.total || 0) / 10) - 1) * 10);
+    view.peopleOffset = Math.min(view.peopleOffset, Math.max(0, Math.ceil(filtered.length / 20) - 1) * 20);
+    const messages = selected ? this.contacts.messagePage(this.account, selected.uid, view.offset).map(m => {
+      const person = byUid.get(m.uid);
+      return { id: m.id, kind: m.kind || 'reply', uid: m.uid, isOwner: m.uid === uid, name: person?.name || '', state: m.state,
+        at: m.at, text: m.text, draft: m.draft || '', evaluation: m.evaluation || '', reason: m.reason || '',
+        eligibility: eligibility(person, people, config, ranks) };
+    }) : [];
     return { accountUid: this.account, enabled: config.dmEnabled, autoSend: config.dmAutoSend,
       paused: this.paused, busy: !!this.busy, notice: this.notice || '', error: this.error || null,
       owner: uid && this.contacts.person(this.account, uid) ? annotate(this.contacts.person(this.account, uid)) : null,
       people: others.slice(contactsOffset, contactsOffset + 20).map(annotate), total: others.length,
       eligibleCount: Math.min(100, ranking.length), importPage: this.store.get('fanImport:' + this.account, 1),
-      budget: this.contacts.budget(this.account, '', config, this.c.now()), messages: this.contacts.recent(this.account).map(m => {
-        const person = this.contacts.person(this.account, m.uid);
-        return { id: m.id, kind: m.kind || 'reply', uid: m.uid, isOwner: m.uid === uid, name: person?.name || '', state: m.state,
-          at: m.at, text: m.text, draft: m.draft || '', evaluation: m.evaluation || '', reason: m.reason || '',
-          eligibility: eligibility(person, people, config, ranks) };
-      }) };
+      budget: this.contacts.budget(this.account, '', config, this.c.now()), messages,
+      privateView: view, conversations: { owner: ownerThread, people: filtered.slice(view.peopleOffset, view.peopleOffset + 20),
+        total: sorted.length, filteredTotal: filtered.length, selected, pageSize: 20, messagePageSize: 10 } };
   }
   assertIdle() {
     assert(!this.busy && !this.c.weekly?.busy && !this.c.store.active() && !this.c.scheduler.busy && !this.c.scheduler.starting && !this.c.installing && !this.c.metadataBusy,

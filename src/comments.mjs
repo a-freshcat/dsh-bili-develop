@@ -158,11 +158,13 @@ export class Comments {
     return { message: '评论操作已提交，状态会自动更新。' };
   }
   async preflight(d) {
-    const found = await this.c.reader().call(d.target ? 'comment_reply_probe' : 'comment_probe', { bvid: d.bvid, expected_account: d.accountUid, mentions: d.mentions, ...(d.target ? { target: d.target } : {}) });
+    const found = await this.c.reader().call(d.target ? 'comment_reply_probe' : 'comment_probe', { bvid: d.bvid, expected_account: d.accountUid, mentions: d.mentions, ...this.replyParams(d) });
     assert(found?.accountUid === d.accountUid && found.bvid === d.bvid && typeof found.oid === 'string' && /^[1-9]\d*$/.test(found.oid) &&
       JSON.stringify(found.mentions) === JSON.stringify(d.mentions) && (!d.target || JSON.stringify(found.target) === JSON.stringify(d.target)), 'COMMENT_TARGET', '登录账号、视频或互动/提及对象与最终预览不匹配。');
     return found;
   }
+  replyParams(d) { return d.target ? { target: d.target,
+    ...(this.store.run(d.id)?.interactionTrigger === 'owner_mention' ? { owner_mention_uid: ownerUid(this.store.config()) } : {}) } : {}; }
   async send(id, revision, auto = false) {
     let d = this.get(requestIdOf(id)); this.assertDraft(d, auto);
     assert(revision === d.revision, 'COMMENT_REVISION', '预览已经更新，请查看当前文案后再发送。');
@@ -176,7 +178,7 @@ export class Comments {
     assert(revision === d.revision, 'COMMENT_REVISION', '预览已经更新，请查看当前文案后再发送。');
     d = this.reserve(d, auto);
     try {
-      const result = await this.c.reader().call(d.target ? 'comment_reply_publish' : 'comment_publish', { bvid: d.bvid, expected_account: d.accountUid, oid: target.oid, text: d.text, mentions: d.mentions, ...(d.target ? { target: d.target } : {}) });
+      const result = await this.c.reader().call(d.target ? 'comment_reply_publish' : 'comment_publish', { bvid: d.bvid, expected_account: d.accountUid, oid: target.oid, text: d.text, mentions: d.mentions, ...this.replyParams(d) });
       if (this.c.closed) return;
       const sameTarget = result?.accountUid === d.accountUid && result.bvid === d.bvid &&
         (!d.target || JSON.stringify(result.target) === JSON.stringify(d.target));

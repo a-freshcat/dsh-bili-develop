@@ -34,6 +34,14 @@ class AudioTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(audio.AudioError):
                 audio.audio_url(url)
 
+    def test_audio_backup_selection_preserves_https_host_port_and_credential_boundaries(self):
+        safe = 'https://upos.bilivideo.com/audio'
+        self.assertEqual(audio.select_audio_url([{'bandwidth': 1, 'base_url': 'https://x.mcdn.bilivideo.cn:8082/a', 'backup_url': [safe]}]), safe)
+        for backup in ['https://evil.test/a', 'https://127.0.0.1/a', 'http://upos.bilivideo.com/a', 'https://a:b@upos.bilivideo.com/a', 'https://upos.bilivideo.com:8082/a']:
+            with self.assertRaises(audio.AudioError):
+                audio.select_audio_url([{'baseUrl': 'https://x.mcdn.bilivideo.cn:8082/a', 'backupUrl': [backup]}])
+        self.assertEqual(audio.select_audio_url([{'bandwidth': 1, 'baseUrl': 'https://evil.test/a'}, {'bandwidth': 2, 'baseUrl': safe}]), safe)
+
     def test_environment_separates_missing_dependencies_and_existing_model_files(self):
         with tempfile.TemporaryDirectory(dir=ROOT / ".runtime") as directory:
             with patch.object(audio.importlib.util, "find_spec", return_value=object()), patch.object(audio.importlib, "import_module", return_value=object()):
@@ -86,6 +94,21 @@ class AudioTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(value["coverage"], "partial")
             self.assertEqual(value["processedRanges"], [{"from": 0, "to": 20}])
             self.assertTrue(all(not path.exists() for path in paths))
+
+    async def test_mcdn_nonstandard_port_uses_safe_https_backup_before_download(self):
+        primary = 'https://xy1.mcdn.bilivideo.cn:8082/audio?sign=fixture'
+        safe = 'https://upos-sz-mirrorhwo1.bilivideo.com/audio?sign=fixture'
+        obj = SimpleNamespace(get_info=AsyncMock(return_value={'cid': 123, 'duration': 100}), get_download_url=AsyncMock(return_value={
+            'dash': {'audio': [{'bandwidth': 1, 'baseUrl': primary, 'backupUrl': ['https://edge.mountaintoys.cn:4483/a', safe]}]}}))
+        result = {'text': '讲话', 'segments': [], 'processedSeconds': 20, 'truncated': False}
+        downloaded = []
+        async def download(url, path):
+            downloaded.append(url)
+            path.write_bytes(b'fixture')
+        with tempfile.TemporaryDirectory(dir=ROOT / '.runtime') as directory:
+            with patch.object(audio, 'check_environment', return_value={'ready': True}), patch.object(audio, 'download', download), patch.object(audio, 'transcribe', return_value=result):
+                await audio.run(obj, {'bvid': 'BV1xx411c7mD', 'cid': 123, 'seconds': 20, 'expected_account': 'fixture', 'model_path': 'fixture'}, Path(directory), 'fixture')
+        self.assertEqual(downloaded, [safe])
 
     async def test_model_failure_also_removes_temporary_media(self):
         obj = SimpleNamespace(get_info=AsyncMock(return_value={"cid": 123, "duration": 100}),

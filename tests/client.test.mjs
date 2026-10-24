@@ -18,6 +18,32 @@ function client(fetch) {
   return plugin;
 }
 
+test('owner mention controls stay collapsed and off, save independently and expose notification check', async t => {
+  const f = fixture(t); await f.bind(); f.controller.configure({ ownerAccountEnabled: true, ownerAccountUid: '789' });
+  let plugin, settings, stateIndex = 0, refIndex = 0; const values = [], refs = [], effects = [], calls = [];
+  const React = { createElement: (type, props, ...children) => ({ type, props: props || {}, children: children.flat(Infinity) }),
+    useState(initial) { const i = stateIndex++; if (!(i in values)) values[i] = initial; return [values[i], v => { values[i] = typeof v === 'function' ? v(values[i]) : v; }]; },
+    useRef(initial) { const i = refIndex++; return refs[i] ||= { current: initial }; }, useEffect(fn) { effects.push(fn); } };
+  const scope = { window: { __ModuleLoader__: { load: m => { plugin = m.factory(() => React); } } },
+    fetch: async (_url, options) => { const input = JSON.parse(options.body); calls.push(input); return Response.json({ ok: true, value: await f.controller.dispatch(input) }); },
+    setTimeout, clearTimeout, setInterval: () => 1, clearInterval() {}, AbortController, Response, crypto: { randomUUID: () => 'owner-mention-ui-test' } };
+  scope.globalThis = scope; runInNewContext(readFileSync('client.js', 'utf8'), scope);
+  plugin.apply({ get: n => n === 'slots' ? { inject: (_n, cb) => cb(), register: (_o, fn) => { settings = fn; } } : { openSession() {} } });
+  const panel = settings({}), flat = n => n && typeof n === 'object' ? [n, ...n.children.flatMap(flat)] : [n];
+  const render = () => { stateIndex = 0; refIndex = 0; effects.length = 0; return panel.type(panel.props); };
+  const button = (tree, text) => flat(tree).find(n => n?.type === 'button' && n.children.includes(text));
+  render(); const cleanup = effects[0](); await new Promise(r => setImmediate(r)); let tree = render();
+  const section = flat(tree).find(n => n?.type === 'details' && n.children.some(c => c?.type === 'summary' && c.children.includes('使用者评论区@回复')));
+  assert.ok(section); assert.ok(!section.props.open);
+  const toggle = flat(section).find(n => n?.type === 'input' && n.props.type === 'checkbox');
+  assert.equal(toggle.props.checked, false); assert.equal(button(tree, '检查使用者@通知').props.disabled, true);
+  toggle.props.onChange({ target: { checked: true } }); tree = render();
+  await button(tree, '保存@回复设置').props.onClick(); await new Promise(r => setImmediate(r)); tree = render();
+  assert.equal(f.store.config().ownerCommentReplyEnabled, true); assert.equal(f.store.config().commentMode, 'preview');
+  assert.equal(button(tree, '检查使用者@通知').props.disabled, false);
+  assert.ok(calls.every(c => ['status', 'configure'].includes(c.action))); assert.equal(f.counters.prompt, 0); assert.equal(f.counters.read, 0); cleanup();
+});
+
 test('dialogue-learning UI distinguishes private conversations from criticism and locally backfills without a model or platform call', async t => {
   const f = fixture(t); await f.bind(); f.controller.configure({ learningEnabled: true }); f.controller.social.setAccount('123');
   f.controller.social.contacts.put('123', '456', { fan: true });

@@ -3,7 +3,8 @@ import asyncio
 import json
 import re
 import unicodedata
-from bilibili_api import Credential, user, video, comment
+from urllib.parse import urlsplit
+from bilibili_api import Credential, user, video, comment, session
 from bilibili_api.utils.network import Api, request_settings
 
 
@@ -137,9 +138,24 @@ async def thread(found, root, cred):
     return await comment.Comment(int(found["oid"]), comment.CommentResourceType.VIDEO, int(root), credential=cred).get_sub_comments(page_index=1, page_size=20)
 
 
+def mentioned_uids(raw):
+    """Use platform mention identities; a typed nickname alone is not proof."""
+    content = raw.get("content") if isinstance(raw, dict) else None
+    if not isinstance(content, dict):
+        return []
+    members, mapping = content.get("members"), content.get("at_name_to_mid")
+    values = [m.get("mid") for m in members[:100] if isinstance(m, dict)] if isinstance(members, list) else []
+    if isinstance(mapping, dict) and len(mapping) <= 100:
+        values.extend(mapping.values())
+    return sorted({str(uid) for uid in values if re.fullmatch(r"[1-9][0-9]{0,19}", str(uid))})[:100]
+
+
 async def scan_interactions(params, cred):
     keys = params.get("keywords", [])
-    if not keys:
+    owner = params.get("owner_mention_uid", "")
+    if not isinstance(owner, str) or (owner and not re.fullmatch(r"[1-9][0-9]{0,19}", owner)):
+        raise PublishError("INTERACTION_CONFIG", "使用者UID无效。")
+    if not keys and not owner:
         return {"disabled": True, "matches": []}
     if (not isinstance(keys, list) or len(keys) > 20 or any(not isinstance(k, str) or not k.strip() or len(k) > 100 or "\0" in k for k in keys)
             or any(type(params.get(k, 1)) is not int or not 0 <= params.get(k, 1) <= 5 for k in ("top_limit", "sub_limit"))):
@@ -154,9 +170,13 @@ async def scan_interactions(params, cred):
 
     def collect(raw, root=None):
         row = interaction_row(raw, root)
-        if row and row["uid"] != found["accountUid"] and row["id"] not in seen and any(k in unicodedata.normalize("NFKC", row["text"]).lower() for k in keys):
+        mentions = mentioned_uids(raw)
+        if (row and row["uid"] != found["accountUid"] and row["id"] not in seen and
+                ((row["uid"] == owner and found["accountUid"] in mentions) or
+                 any(k in unicodedata.normalize("NFKC", row["text"]).lower() for k in keys))):
             seen.add(row["id"])
             matches.append({**row, "name": str((raw.get("member") or {}).get("uname", ""))[:80],
+                            "mentionedUids": mentions,
                             "url": "https://www.bilibili.com/video/" + found["bvid"] + "/#reply" + row["id"]})
     for raw in roots:
         if params.get("top_limit", 1):
@@ -191,11 +211,73 @@ async def reply_context(params, found, cred):
     for raw in rows:
         row = interaction_row(raw, t["root"] if t["level"] == "sub" else None)
         if row == t and row["uid"] != found["accountUid"]:
+            owner = params.get("owner_mention_uid", "")
+            if owner and (row["uid"] != owner or found["accountUid"] not in mentioned_uids(raw)):
+                raise PublishError("COMMENT_PREFLIGHT", "使用者原留言的@已变化或无法核实，未发送。")
             return row, data
     raise PublishError("COMMENT_PREFLIGHT", "互动原评论已变化、不可读或不在当前样本中，未发送。")
 
 
+async def owner_mentions(params, cred):
+    owner, since = params.get('owner_uid'), params.get('since')
+    handled = params.get('handled_ids', [])
+    if (not isinstance(owner, str) or not re.fullmatch(r'[1-9][0-9]{0,19}', owner) or type(since) is not int or since < 0 or
+            not isinstance(handled, list) or len(handled) > 100 or any(not isinstance(r, str) or not re.fullmatch(r'[1-9][0-9]{0,29}', r) for r in handled)):
+        raise PublishError('INTERACTION_CONFIG', '使用者@通知参数无效。')
+    cred.raise_for_no_sessdata()
+    account = str((await user.get_self_info(cred)).get('mid', ''))
+    if not re.fullmatch(r'[1-9][0-9]{0,19}', account) or (params.get('expected_account') and params['expected_account'] != account):
+        raise PublishError('COMMENT_PREFLIGHT', '通知登录账号不匹配。')
+    page = await session.get_at(credential=cred)
+    if not isinstance(page, dict) or not isinstance(page.get('items'), list):
+        raise PublishError('INTERACTION_READ', '@通知数据格式无效。')
+    matches, checked = [], 0
+    for notice in page['items'][:20]:
+        if not isinstance(notice, dict):
+            continue
+        item, author, at = notice.get('item'), notice.get('user'), notice.get('at_time')
+        if (not isinstance(item, dict) or not isinstance(author, dict) or str(author.get('mid')) != owner or owner == account or
+                type(at) is not int or at * 1000 < since or item.get('type') != 'reply' or item.get('business_id') != 1):
+            continue
+        details = item.get('at_details')
+        if not isinstance(details, list) or not any(isinstance(d, dict) and str(d.get('mid')) == account for d in details[:100]):
+            continue
+        try:
+            uri = urlsplit(item.get('uri', ''))
+            if uri.scheme != 'https' or uri.hostname != 'www.bilibili.com' or uri.port not in (None, 443) or uri.username or uri.password:
+                continue
+        except (ValueError, TypeError):
+            continue
+        bv = re.fullmatch(r'/video/(BV[0-9A-Za-z]{10})/?', uri.path)
+        rid, nid = str(item.get('source_id', '')), str(notice.get('id', ''))
+        raw_root = str(item.get('root_id') or '')
+        root = rid if raw_root in ('', '0') else raw_root
+        if not bv or rid in handled or any(not re.fullmatch(r'[1-9][0-9]{0,29}', x) for x in (rid, root, nid)):
+            continue
+        checked += 1
+        try:
+            found = await target({'bvid': bv[1], 'expected_account': account}, cred)
+            if found['oid'] != str(item.get('subject_id')):
+                continue
+            data = await thread(found, root, cred)
+            raw_rows = [data.get('root')] if root == rid else (data.get('replies') or [])[:20]
+            for raw in raw_rows:
+                row = interaction_row(raw, root if root != rid else None)
+                if (row and row['id'] == rid and row['uid'] == owner and account in mentioned_uids(raw) and
+                        row['text'] == item.get('source_content')):
+                    matches.append({**row, 'notificationId': nid, 'bvid': bv[1], 'at': at * 1000, 'mentionedUids': [account]})
+                    break
+        except Exception:
+            pass  # A deleted/unreadable thread does not authorize a reply.
+        finally:
+            if checked >= 3:
+                break
+    return {'accountUid': account, 'matches': matches, 'checked': checked}
+
+
 async def dispatch(method, params, cred):
+    if method == 'owner_mentions':
+        return await asyncio.wait_for(owner_mentions(params, cred), timeout=50)
     if method == "interaction_scan":
         return await scan_interactions(params, cred)
     if method == 'comment_feedback':

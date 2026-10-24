@@ -23,6 +23,7 @@ class PublishingTests(unittest.IsolatedAsyncioTestCase):
         self.comments = AsyncMock(return_value={"replies": []})
         self.public_comments = AsyncMock(return_value={"replies": []})
         self.subcomments = AsyncMock(return_value={"root": self.root(), "replies": []})
+        self.at_notices = AsyncMock(return_value={'items': []})
         self.posts, self.inputs = [], []
         self.failure = None
         self.relation_attribute = 2
@@ -60,6 +61,7 @@ class PublishingTests(unittest.IsolatedAsyncioTestCase):
                         patch.object(publishing.comment, "get_comments", self.comments),
                         patch.object(publishing.comment, "get_comments_lazy", self.public_comments),
                         patch.object(publishing.comment.Comment, "get_sub_comments", self.subcomments), patch.object(publishing, "Api", Api)]
+        self.patches.append(patch.object(publishing.session, 'get_at', self.at_notices))
         for p in self.patches:
             p.start()
 
@@ -101,6 +103,52 @@ class PublishingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["matches"], [])
         self.info.assert_not_awaited()
         self.comments.assert_not_awaited()
+
+    async def test_owner_mention_scan_requires_platform_uid_not_nickname_and_no_keyword(self):
+        self.comments.return_value = {'replies': [
+            self.root(rpid=101, member={'mid': 789}, content={'message': '@大肥鱼 来看看'}),
+            self.root(rpid=102, member={'mid': 789}, content={'message': '@大肥鱼 来看看', 'members': [{'mid': 123}]}),
+            self.root(rpid=103, member={'mid': 456}, content={'message': '@大肥鱼 来看看', 'members': [{'mid': 123}]}),
+            self.root(rpid=104, member={'mid': 789}, content={'message': '@大肥鱼 来看看', 'members': [{'mid': 999}]})]}
+        found = await self.dispatch('interaction_scan', keywords=[], owner_mention_uid='789', sub_limit=0)
+        self.assertEqual([r['id'] for r in found['matches']], ['102'])
+        self.assertEqual(found['matches'][0]['mentionedUids'], ['123'])
+        self.assertEqual(self.posts, [])
+
+    def notice(self, **changes):
+        return {'id': 901, 'user': {'mid': 789}, 'at_time': 100, 'item': {
+            'type': 'reply', 'business_id': 1, 'uri': f'https://www.bilibili.com/video/{BV}/',
+            'subject_id': 987, 'root_id': 0, 'source_id': 101, 'source_content': '@大肥鱼 来看看',
+            'at_details': [{'mid': 123}], **changes}}
+
+    async def test_owner_notifications_recheck_actual_video_comment_and_mention_before_returning(self):
+        self.at_notices.return_value = {'items': [self.notice()]}
+        self.subcomments.return_value = {'root': self.root(member={'mid': 789}, content={'message': '@大肥鱼 来看看', 'members': [{'mid': 123}]}), 'replies': []}
+        found = await self.dispatch('owner_mentions', owner_uid='789', since=99000)
+        self.assertEqual(len(found['matches']), 1)
+        self.assertEqual((found['matches'][0]['bvid'], found['matches'][0]['notificationId'], found['matches'][0]['uid']), (BV, '901', '789'))
+        self.assertEqual(self.posts, [])
+        found = await self.dispatch('owner_mentions', owner_uid='789', since=99000, handled_ids=['101'])
+        self.assertEqual(found['matches'], [])
+        self.at_notices.return_value = {'items': [self.notice(root_id='0')]}
+        self.assertEqual(len((await self.dispatch('owner_mentions', owner_uid='789', since=99000))['matches']), 1)
+        self.subcomments.return_value['root']['content']['members'] = [{'mid': 999}]
+        self.assertEqual((await self.dispatch('owner_mentions', owner_uid='789', since=99000))['matches'], [])
+        with self.assertRaises(publishing.PublishError):
+            await self.dispatch('comment_reply_probe', owner_mention_uid='789', target={
+                'id': '101', 'root': '101', 'uid': '789', 'text': '@大肥鱼 来看看', 'level': 'top'})
+        self.assertEqual(self.posts, [])
+
+    async def test_owner_notifications_ignore_wrong_sender_old_dynamic_foreign_link_and_account(self):
+        notices = [self.notice(business_id=11), self.notice(uri=f'https://www.bilibili.com.evil.test/video/{BV}/'),
+                   self.notice(at_details=[{'mid': 999}]), {**self.notice(), 'at_time': 1}, {**self.notice(), 'user': {'mid': 999}}]
+        self.at_notices.return_value = {'items': notices}
+        self.assertEqual((await self.dispatch('owner_mentions', owner_uid='789', since=99000))['matches'], [])
+        self.video.assert_not_awaited()
+        self.subcomments.assert_not_awaited()
+        with self.assertRaises(publishing.PublishError):
+            await self.dispatch('owner_mentions', owner_uid='789', since=99000, expected_account='999')
+        self.assertEqual(self.posts, [])
 
     async def test_keyword_scan_bounds_threads_and_excludes_self_nonmatching_and_wrong_root(self):
         self.comments.return_value = {"replies": [self.root(rpid=i + 101) for i in range(30)]}
