@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { assert, errorView } from './errors.mjs';
 import { ownerUid } from './owner.mjs';
+import { knowledgePolicyParts } from './knowledge-packs.mjs';
 import { eligibility, rankedContacts } from './contacts.mjs';
 import { inActivity } from './time.mjs';
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -24,7 +25,7 @@ export class Relationships {
     busy: !!this.busy, budget: this.budget(), notice: this.notice || '', followThreshold: 80, proactiveThreshold: 100 }; }
   configured(before, after) { if (!before.dmProactiveEnabled && after.dmProactiveEnabled) this.s.set('proactiveSince', this.c.now()); }
   policy(account) { const c = this.s.config(); return hash([c.persona, ownerUid(c), c.ownerAccountName, c.learningEnabled,
-    c.learningEnabled ? this.c.learning.iteration(account).version : 0]); }
+    c.learningEnabled ? this.c.learning.iteration(account).version : 0, ...knowledgePolicyParts(c)]); }
   allowed(person, proactive = false) {
     const config = this.s.config(), account = this.account();
     assert(person && person.uid !== account && !person.blocked && !person.userBlocked && !person.platformBlocked &&

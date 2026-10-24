@@ -61,6 +61,13 @@ class PrivateTests(unittest.IsolatedAsyncioTestCase):
         self.fetch.assert_not_awaited()
         self.send.assert_not_awaited()
 
+    def test_inline_bilibili_emote_codes_and_unicode_remain_exact_in_text_message(self):
+        for text in ['[doge]', '你好[千恋万花_害羞]', '😺']:
+            parsed = private.message(incoming(content=json.dumps({'content': text})), '123', '456')
+            self.assertIsNotNone(parsed)
+            self.assertEqual(parsed['text'], text)
+            self.assertEqual(parsed['id'], '777')
+
     async def test_follow_direction_is_target_following_agent_not_agent_following_target(self):
         result = await self.dispatch("dm_thread")
         self.assertTrue(result["fan"])

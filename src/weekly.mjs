@@ -2,9 +2,10 @@ import { dirname } from 'node:path';
 import { assert, errorView } from './errors.mjs';
 import { dayWindow, localDay } from './time.mjs';
 import { digest, adoptImage, readImage, writeWeekly, releaseStaged, collectImages, sameRoot } from './weekly-assets.mjs';
+import { knowledgePolicyParts } from './knowledge-packs.mjs';
 
 const EDITABLE = ['draft', 'approved', 'failed'];
-const policy = c => digest([c.persona, c.ownerAccountEnabled, c.ownerAccountUid, c.mentionTargets]);
+const policy = c => digest([c.persona, c.ownerAccountEnabled, c.ownerAccountUid, c.mentionTargets, ...knowledgePolicyParts(c)]);
 const publicView = d => {
   if (!d) return null;
   const { policyHash, style, ...rest } = d;
@@ -106,7 +107,7 @@ export class Weekly {
       const generation = (previous?.generation || 0) + 1, runId = id + '-g' + generation;
       const d = { id, accountUid: uid, ...range, workspace: binding.path, sessionId: binding.sessionId,
         generation, runId, state: 'generating', body: '', images: [], mentions: [], sources,
-        policyHash: policy(config), style: this.c.learning.context(uid).text, imageBrief: '', approval: null, reason: '', createdAt: new Date(this.c.now()).toISOString() };
+        policyHash: policy(config), style: this.c.learning.context(uid, {}, 'weekly').text, imageBrief: '', approval: null, reason: '', createdAt: new Date(this.c.now()).toISOString() };
       d.revision = this.revision(d);
       const reserved = this.s.start({ id: runId, kind: 'weekly', sessionId: binding.sessionId, accountUid: uid, now: this.c.now(), admit: () => {
         assert(this.budget().generations < config.weeklyDailyDraftLimit, 'WEEKLY_LIMIT', '已达当天动态草稿生成上限。');
@@ -172,7 +173,7 @@ export class Weekly {
     try {
       const binding = await this.c.host.requireBinding();
       assert(binding.sessionId === d.sessionId && binding.path === d.workspace && policy(this.s.config()) === d.policyHash,
-        'WEEKLY_CHANGED', '原对话、工作区、人设或提及设置已变化，请重新生成草稿。');
+        'WEEKLY_CHANGED', '原对话、工作区、人设、知识包或提及设置已变化，请重新生成草稿。');
       assert(await this.account() === d.accountUid, 'WEEKLY_CHANGED', '登录账号与草稿账号不一致。');
       this.c.learning.checkOutput(d.body, d.accountUid);
       this.c.privacy.check(d.body, { mentions: d.mentions });

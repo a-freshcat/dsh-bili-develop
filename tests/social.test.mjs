@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { fixture } from './fixtures.mjs';
 import { Social } from '../src/social.mjs';
 import { Store } from '../src/store.mjs';
+import { Contacts } from '../src/contacts.mjs';
 import { join } from 'node:path';
 
 async function setup(t, options = {}) {
@@ -138,17 +139,81 @@ test('send rechecks rank, score, pause and fan status after async network prefli
   }
 });
 
-test('daily total, per-person caps and minimum spacing also apply to owner', async t => {
-  const f = await setup(t, { owner: true }); await f.scan(); const id = f.social.contacts.recent('123')[0].id;
-  f.controller.configure({ dmDailyReplyLimit: 0 });
-  await assert.rejects(f.social.send(id), { code: 'DM_LIMIT' }); assert.equal(f.sent.length, 0);
-  f.controller.configure({ dmDailyReplyLimit: 2, dmPerPersonDailyLimit: 1 });
-  await f.social.send(id); assert.equal(f.sent.length, 1);
-  f.messages[0] = { ...f.messages[0], id: 'message-key-2' }; await f.scan();
-  await assert.rejects(f.social.send(f.social.contacts.recent('123')[0].id), { code: 'DM_LIMIT' });
-  f.controller.configure({ dmPerPersonDailyLimit: 2 });
-  await assert.rejects(f.social.send(f.social.contacts.recent('123')[0].id), { code: 'DM_INTERVAL' });
-  f.clock.now += 121000; await f.social.send(f.social.contacts.recent('123')[0].id); assert.equal(f.sent.length, 2);
+test('owner ordinary replies bypass evaluation and reply count caps, without consuming ordinary budget, while cooldown remains', async t => {
+  const f = await setup(t, { owner: true, auto: true });
+  f.controller.configure({ dmDailyReplyLimit: 0, dmPerPersonDailyLimit: 0, dmDailyEvaluationLimit: 0, activityStart: '00:00', activityEnd: '24:00' });
+  for (let i = 0; i < 5; i++) {
+    f.clock.now += 121000; f.messages[0] = { ...f.messages[0], id: 'owner-unlimited-' + i, at: f.clock.now };
+    f.social.tick(); await f.social.job;
+    assert.equal(f.sent.length, i + 1);
+  }
+  const budget = f.social.contacts.budget('123', '', f.store.config(), f.clock.now);
+  assert.equal(budget.replies, 0); assert.equal(budget.evaluations, 0); assert.equal(budget.ownerReplies, 5); assert.equal(budget.ownerEvaluations, 5);
+  f.messages[0] = { ...f.messages[0], id: 'owner-cooldown', at: f.clock.now }; await f.scan();
+  const m = f.social.contacts.recent('123')[0]; await assert.rejects(f.social.send(m.id), { code: 'DM_INTERVAL' });
+  assert.match(m.reason, /最短回复间隔/); assert.equal(f.sent.length, 5);
+});
+
+test('optional knowledge advice reaches private reply drafting but changing it cannot send an old draft', async t => {
+  const f = await setup(t, { owner: true });
+  f.controller.configure({ learningEnabled: true, learningKnowledgePacks: ['natural-short-zh'] }); await f.scan();
+  assert.match(f.prompt(), /【可选知识包：自然中文短回复】/); assert.match(f.prompt(), /JSON外壳/);
+  const m = f.social.contacts.recent('123')[0]; assert.equal(m.state, 'draft');
+  f.controller.configure({ learningKnowledgePacks: [] }); await f.social.send(m.id);
+  assert.equal(f.sent.length, 0); assert.equal(f.social.contacts.message(m.id).state, 'skipped');
+  assert.match(f.social.contacts.message(m.id).reason, /知识包/);
+});
+
+test('automatic ordinary reply quota failure remains visible on draft and scan notice instead of being overwritten', async t => {
+  const f = await setup(t, { auto: true }); f.controller.configure({ dmDailyReplyLimit: 0 }); await f.scan();
+  const m = f.social.contacts.recent('123')[0]; assert.equal(m.state, 'draft'); assert.equal(f.sent.length, 0);
+  assert.match(m.reason, /每日总/); assert.match(f.social.notice, /每日总/);
+  await f.scan(); assert.match(f.social.notice, /每日总/); assert.equal(f.counters.prompt, 1);
+});
+
+test('owner inline Bilibili emote remains original evidence and reaches automatic reply even with zero ordinary quotas', async t => {
+  for (const text of ['[doge]', '你好[千恋万花_害羞]', '😺']) {
+    const f = await setup(t, { owner: true, auto: true, text, noReply: false });
+    const originalPrompt = f.ctx.sessionController.prompt;
+    f.ctx.sessionController.prompt = async request => {
+      const source = request.content[0].text;
+      const agent = f.sessions.get(request.sessionId), start = agent.events.length;
+      await originalPrompt(request);
+      for (const event of agent.events.slice(start)) if (event.type === 'assistant/message') event.data.message.content[0].text = JSON.stringify({
+        runId: request.requestId, score_delta: 0, evaluation: '这是表达线索，不凭表情推断品格。', evidence_quote: text, should_reply: true, reply: '我看到你的表情啦。' });
+      assert.ok(source.includes(text)); if (text.includes('[')) assert.match(source, /inlineEmotes/);
+    };
+    f.controller.configure({ dmDailyReplyLimit: 0, dmPerPersonDailyLimit: 0, dmDailyEvaluationLimit: 0 });
+    await f.scan(); assert.equal(f.counters.prompt, 1); assert.equal(f.sent.length, 1);
+    const m = f.social.contacts.recent('123')[0]; assert.equal(m.text, text); assert.equal(m.state, 'sent');
+    assert.equal(f.social.contacts.person('123', '999').score, 5);
+  }
+});
+
+test('owner quota migration preserves all attempts, excludes old ordinary owner replies once and never refunds other contacts on identity changes', async t => {
+  const f = await setup(t, { owner: true, auto: true }); await f.scan();
+  const config = f.store.config(), contacts = f.social.contacts;
+  contacts.put('123', '456', { fan: true, score: 80 });
+  contacts.reserveEvaluation({ id: 'quota-migrate-fan', uid: '456', accountUid: '123', state: 'draft', text: 'synthetic', draft: 'synthetic' }, config, f.clock.now);
+  contacts.reserveSend(contacts.message('quota-migrate-fan'), config, f.clock.now);
+  f.store.db.exec('DELETE FROM private_owner_quota'); f.store.set('privateOwnerQuotaV1', false);
+  const migrated = new Contacts(f.store), b = migrated.budget('123', '', config, f.clock.now);
+  assert.equal(b.replies, 1); assert.equal(b.ownerReplies, 1); assert.equal(b.evaluations, 1); assert.equal(b.ownerEvaluations, 1);
+  assert.equal(f.store.db.prepare('SELECT COUNT(*) n FROM private_attempts').get().n, 2);
+  f.controller.configure({ ownerAccountUid: '456' });
+  assert.equal(new Contacts(f.store).budget('123', '', f.store.config(), f.clock.now).replies, 1);
+  assert.equal(f.store.db.prepare('SELECT COUNT(*) n FROM private_owner_quota').get().n, 2);
+});
+
+test('exhausted ordinary evaluation quota does not starve an older owner message and disabled owner identity restores normal caps', async t => {
+  const f = await setup(t, { owner: true, auto: true });
+  f.controller.configure({ dmDailyReplyLimit: 0, dmPerPersonDailyLimit: 0, dmDailyEvaluationLimit: 0 });
+  f.messages.unshift({ uid: '456', id: 'newest-ordinary-capped', text: '谢谢分享', at: f.clock.now + 2000 });
+  await f.scan(); assert.equal(f.sent.length, 1); assert.equal(f.sent[0].uid, '999');
+  f.controller.configure({ ownerAccountEnabled: false });
+  f.clock.now += 121000; f.messages[1] = { ...f.messages[1], id: 'owner-disabled-new', at: f.clock.now };
+  await f.scan(); assert.equal(f.sent.length, 1); assert.equal(f.counters.prompt, 1);
+  assert.match(f.social.notice, /评价上限/);
 });
 
 test('uncertain send consumes quota and is never automatically or manually retried', async t => {
@@ -218,6 +283,54 @@ test('automatic checks respect enable, due time and activity; paused browsing do
   f.store.set('dmNextPoll', f.clock.now); f.social.pause(); f.social.tick(); assert.equal(f.social.busy, false);
   f.social.resume(); f.store.set('browsingPaused', true); f.social.tick(); await f.social.job; assert.equal(f.counters.prompt, 2);
   f.controller.configure({ dmEnabled: false }); f.clock.now += 61000; f.social.tick(); assert.equal(f.social.busy, false);
+});
+
+test('automatic owner polling recovers a missing schedule after restart despite exhausted ordinary quotas', async t => {
+  const f = await setup(t, { owner: true, auto: true });
+  f.controller.configure({ dmDailyReplyLimit: 0, dmPerPersonDailyLimit: 0, dmDailyEvaluationLimit: 0, activityStart: '00:00', activityEnd: '24:00' });
+  f.store.db.prepare('DELETE FROM kv WHERE key=?').run('dmNextPoll');
+  f.clock.now += 61000; f.controller.social = new Social(f.controller);
+  f.controller.social.tick(); await f.controller.social.job;
+  assert.equal(f.sent.length, 1); assert.equal(f.counters.prompt, 1);
+});
+
+test('saving unrelated settings or enabling automatic sending does not postpone an already due inbox check', async t => {
+  for (const change of [{ commentMaxChars: 170 }, { dmAutoSend: true }]) {
+    const f = await setup(t, { owner: true, auto: false });
+    f.controller.configure({ dmDailyReplyLimit: 0, dmPerPersonDailyLimit: 0, dmDailyEvaluationLimit: 0, activityStart: '00:00', activityEnd: '24:00' });
+    f.clock.now += 61000; const due = f.store.get('dmNextPoll');
+    f.controller.configure(change);
+    assert.ok(f.store.get('dmNextPoll') <= f.clock.now, 'due check is not pushed into the future');
+    f.social.tick(); await f.social.job; assert.equal(f.counters.prompt, 1);
+    assert.equal(f.sent.length, change.dmAutoSend ? 1 : 0);
+  }
+});
+
+test('a waiting browsing round between jobs does not suppress an automatic owner inbox check', async t => {
+  const f = await setup(t, { owner: true, auto: true });
+  f.controller.configure({ dmDailyReplyLimit: 0, dmDailyEvaluationLimit: 0, activityStart: '00:00', activityEnd: '24:00' });
+  f.store.db.prepare('INSERT INTO rounds VALUES(?,?,?)').run('waiting-between-jobs', 'waiting', JSON.stringify({ id: 'waiting-between-jobs', state: 'waiting' }));
+  f.clock.now += 61000; f.social.tick(); await f.social.job;
+  assert.equal(f.sent.length, 1);
+});
+
+test('private schedule distinguishes activity, due, interval, busy and pause; optional all-day checking ignores browse hours', async t => {
+  const f = await setup(t, { owner: true, auto: true });
+  f.controller.configure({ activityStart: '08:00', activityEnd: '23:00', timeZone: 'Asia/Singapore', dmUseBrowseHours: true,
+    dmDailyEvaluationLimit: 0, dmDailyReplyLimit: 0 });
+  f.clock.now = Date.parse('2026-10-24T00:05:00+08:00'); f.store.set('dmNextPoll', f.clock.now - 1000);
+  f.messages[0].at = f.clock.now; f.store.set('dmSince', f.clock.now - 1000);
+  const old = f.social.schedule(); assert.equal(old.code, 'activity'); assert.match(old.nextCheckAt, /T00:00:00/);
+  assert.equal(f.social.schedule().automaticReply, true); f.social.tick(); assert.equal(f.counters.prompt, 0);
+  f.controller.configure({ dmUseBrowseHours: false }); assert.equal(f.social.schedule().code, 'due');
+  f.social.start(); await f.social.job; f.social.close();
+  assert.equal(f.sent.length, 1); assert.equal(f.social.schedule().code, 'interval'); assert.equal(f.social.schedule().lastCheckedAt, f.clock.now);
+  f.clock.now += 61000; f.controller.metadataBusy = true; assert.equal(f.social.schedule().code, 'busy');
+  f.social.tick(); assert.equal(f.sent.length, 1); f.controller.metadataBusy = false;
+  f.social.pause(); assert.equal(f.social.schedule().code, 'paused'); assert.equal(f.social.schedule().nextCheckAt, null);
+  f.social.resume(); assert.equal(f.social.schedule().code, 'due');
+  f.controller.configure({ dmAutoSend: false }); assert.equal(f.social.schedule().automaticReply, false);
+  f.controller.configure({ dmEnabled: false }); assert.equal(f.social.schedule().code, 'off');
 });
 
 test('changing persona, owner attitude or re-enabling later invalidates an older private draft', async t => {

@@ -173,7 +173,7 @@ async def scan_interactions(params, cred):
         mentions = mentioned_uids(raw)
         if (row and row["uid"] != found["accountUid"] and row["id"] not in seen and
                 ((row["uid"] == owner and found["accountUid"] in mentions) or
-                 any(k in unicodedata.normalize("NFKC", row["text"]).lower() for k in keys))):
+                 (not root and any(k in unicodedata.normalize("NFKC", row["text"]).lower() for k in keys)))):
             seen.add(row["id"])
             matches.append({**row, "name": str((raw.get("member") or {}).get("uname", ""))[:80],
                             "mentionedUids": mentions,
@@ -181,7 +181,7 @@ async def scan_interactions(params, cred):
     for raw in roots:
         if params.get("top_limit", 1):
             collect(raw)
-    if params.get("sub_limit", 1):
+    if params.get("sub_limit", 1) and owner:
         examined = 0
         for raw in roots:
             row = interaction_row(raw)
@@ -211,6 +211,13 @@ async def reply_context(params, found, cred):
     for raw in rows:
         row = interaction_row(raw, t["root"] if t["level"] == "sub" else None)
         if row == t and row["uid"] != found["accountUid"]:
+            parent = params.get('self_reply_parent', '')
+            if parent:
+                originals = [data.get('root')] + (data.get('replies') or [])[:20]
+                original = next((r for r in originals if isinstance(r, dict) and str(r.get('rpid_str') or r.get('rpid')) == parent), None)
+                if (t['level'] != 'sub' or str(raw.get('parent_str') or raw.get('parent')) != parent or not original or
+                        str((original.get('member') or {}).get('mid', '')) != found['accountUid']):
+                    raise PublishError('COMMENT_PREFLIGHT', '无法核实对本人评论的直接回复，未发送。')
             owner = params.get("owner_mention_uid", "")
             if owner and (row["uid"] != owner or found["accountUid"] not in mentioned_uids(raw)):
                 raise PublishError("COMMENT_PREFLIGHT", "使用者原留言的@已变化或无法核实，未发送。")
@@ -296,7 +303,7 @@ async def dispatch(method, params, cred):
             row = interaction_row(raw, root_id)
             if (row and row['uid'] != found['accountUid'] and str(raw.get('parent_str') or raw.get('parent')) == own_id and
                     type(raw.get('ctime')) in (int, float) and raw['ctime'] * 1000 >= at - 2000):
-                replies.append({'id': row['id'], 'parent': own_id, 'uid': row['uid'], 'text': row['text']})
+                replies.append({**row, 'parent': own_id, 'at': int(raw['ctime'] * 1000)})
         return {'accountUid': found['accountUid'], 'bvid': found['bvid'], 'commentId': own_id, 'replies': replies}
     reply_method = method.startswith("comment_reply_")
     method = method.replace("comment_reply_", "comment_") if reply_method else method

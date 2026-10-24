@@ -7,6 +7,7 @@ import { Social } from './social.mjs';
 import { Comments } from './comments.mjs';
 import { Interactions } from './interactions.mjs';
 import { OwnerMentions } from './owner-mentions.mjs';
+import { SelfReplies } from './self-replies.mjs';
 import { Learning } from './learning.mjs';
 import { Weekly } from './weekly.mjs';
 import { History } from './history.mjs';
@@ -48,6 +49,7 @@ export class Controller {
     this.comments = new Comments(this);
     this.interactions = new Interactions(this);
     this.ownerMentions = new OwnerMentions(this);
+    this.selfReplies = new SelfReplies(this);
     this.learning = new Learning(this);
     this.discovery = new Discovery(this);
     this.weekly = new Weekly(this);
@@ -80,6 +82,7 @@ export class Controller {
       comments: this.comments.status(),
       interactions: this.interactions.status(interactionView),
       ownerMentions: this.ownerMentions.status(),
+      selfReplies: this.selfReplies.status(),
       learning: this.learning.status(learningOffset, learningView),
       weekly: this.weekly.status(weeklyOffset),
     };
@@ -96,6 +99,7 @@ export class Controller {
     this.comments.configured(previous, config);
     this.interactions.configured(previous, config);
     this.ownerMentions.configured(previous, config);
+    this.selfReplies.configured(previous, config);
     if (previous.pythonPath !== config.pythonPath) this.resetReader();
     if (previous.pythonPath !== config.pythonPath || previous.asrModelPath !== config.asrModelPath)
       this.audioEnvironment = { state: 'unchecked', message: '设置已变更，请重新检查音频环境。' };
@@ -162,7 +166,7 @@ export class Controller {
       ownerContext(config) + '\n这是专用对话的只读接入检查。请只回复：BILI_PROBE_OK ' + run.id :
       previewPrompt({ ...run, publicationContext: this.comments.context(String(evidence.accountUid || '')) }, evidence, config);
     if (['video', 'interaction', 'dm', 'dm_proactive'].includes(run.kind)) {
-      const learningSnapshot = this.learning.context(String(evidence?.accountUid || run.accountUid || ''), evidence);
+      const learningSnapshot = this.learning.context(String(evidence?.accountUid || run.accountUid || ''), evidence, run.kind);
       text = learningSnapshot.text + '\n' + this.learning.instruction(run) + '\n' + text;
       run = this.store.update(run.id, { learningSnapshot });
     }
@@ -532,6 +536,7 @@ export class Controller {
       case 'feedback_scan': return this.feedback.scan();
       case 'feedback_private_scan': return this.feedback.scanPrivate();
       case 'owner_mentions_scan': return this.ownerMentions.scan();
+      case 'self_replies_scan': return this.selfReplies.scan();
       case 'refresh_covers': return this.refreshCovers(input.offset, input.filters);
       case 'configure': return this.configure(input.config);
       case 'lookup_owner': return this.lookupOwner(input.uid);
@@ -620,5 +625,5 @@ export class Controller {
   deleteRecord(id) {
     return this.history.remove([this.store.run(requestIdOf(id))]);
   }
-  close() { this.closed = true; this.scheduler.close(); this.social.close(); this.comments.close(); this.learning.close(); this.weekly.close(); this.feedback.close(); this.relationships.close(); this.ownerMentions.close(); this.installAbort?.abort(); this.resetReader(); }
+  close() { this.closed = true; this.scheduler.close(); this.social.close(); this.comments.close(); this.learning.close(); this.weekly.close(); this.feedback.close(); this.relationships.close(); this.ownerMentions.close(); this.selfReplies.close(); this.installAbort?.abort(); this.resetReader(); }
 }

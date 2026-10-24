@@ -3,9 +3,10 @@ import { assert, errorView } from './errors.mjs';
 import { bvidOf, requestIdOf, parsePreview } from './decision.mjs';
 import { uidOf, ownerUid } from './owner.mjs';
 import { inActivity } from './time.mjs';
+import { knowledgePolicyParts } from './knowledge-packs.mjs';
 
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
-const policy = c => hash([c.persona, ownerUid(c), c.ownerAccountName || '', c.commentMaxChars]);
+const policy = c => hash([c.persona, ownerUid(c), c.ownerAccountName || '', c.commentMaxChars, ...knowledgePolicyParts(c)]);
 const feedbackOf = value => {
   if (!value || typeof value !== 'object' || Array.isArray(value) || value.captured !== true) return undefined;
   const result = { captured: true };
@@ -112,7 +113,7 @@ export class Comments {
       assert(JSON.stringify(d.target) === JSON.stringify(run.interactionTarget), 'COMMENT_TARGET', '互动对象与原留言不匹配。');
       this.c.interactions.assertAllowed(d);
     }
-    assert(policy(config) === d.policy, 'COMMENT_STALE', '基础人设或使用者身份已变化，请重新读取并生成评价。');
+    assert(policy(config) === d.policy, 'COMMENT_STALE', '基础人设、知识包或使用者身份已变化，请重新读取并生成评价。');
     const mentions = this.selected(d.mentions.map(t => t.uid), config);
     assert(JSON.stringify(mentions) === JSON.stringify(d.mentions), 'MENTION_CHANGED', '提及昵称或对象已变化，请重新更新预览。');
     assert(d.text.length <= config.commentMaxChars && revisionOf(d) === d.revision,
@@ -164,6 +165,7 @@ export class Comments {
     return found;
   }
   replyParams(d) { return d.target ? { target: d.target,
+    ...(this.store.run(d.id)?.interactionTrigger === 'self_reply' ? { self_reply_parent: this.store.run(d.id).selfReplyReceipt } : {}),
     ...(this.store.run(d.id)?.interactionTrigger === 'owner_mention' ? { owner_mention_uid: ownerUid(this.store.config()) } : {}) } : {}; }
   async send(id, revision, auto = false) {
     let d = this.get(requestIdOf(id)); this.assertDraft(d, auto);

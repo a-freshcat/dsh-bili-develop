@@ -1,5 +1,6 @@
 import { assert, PluginError } from './errors.mjs';
 import { uidOf, ownerContext } from './owner.mjs';
+import { validateKnowledgePacks } from './knowledge-packs.mjs';
 
 export function bvidOf(value) {
   const match = String(value || '').trim().match(/^(?:https:\/\/www\.bilibili\.com\/video\/)?(BV[0-9A-Za-z]{10})(?:[/?#].*)?$/);
@@ -19,12 +20,12 @@ export function configOf(input, previous) {
     'timeZone', 'activityStart', 'activityEnd', 'asrEnabled', 'asrModelPath', 'asrMaxSeconds',
     'dailyAudioSeconds', 'dailyAudioRequests', 'audioTimeoutSeconds', 'asrDownloadModel', 'asrDownloadSource',
     'ownerAccountEnabled', 'ownerAccountUid', 'ownerAccountName', 'ownerAttitudeEnabled',
-    'dmEnabled', 'dmAutoSend', 'dmDailyReplyLimit', 'dmPerPersonDailyLimit', 'dmDailyEvaluationLimit', 'dmPollSeconds', 'dmMaxChars', 'dmMinIntervalSeconds',
+    'dmEnabled', 'dmAutoSend', 'dmUseBrowseHours', 'dmDailyReplyLimit', 'dmPerPersonDailyLimit', 'dmDailyEvaluationLimit', 'dmPollSeconds', 'dmMaxChars', 'dmMinIntervalSeconds',
     'autoFollowEnabled', 'autoFollowDailyLimit', 'autoFollowMinIntervalSeconds', 'dmProactiveEnabled', 'dmProactiveDailyLimit',
     'commentMode', 'dailyCommentLimit', 'perRoundCommentLimit', 'commentMinIntervalSeconds', 'commentMentionsEnabled',
     'dailyMentionLimit', 'mentionsPerComment', 'mentionMinIntervalSeconds', 'mentionTargets',
-    'interactionKeywords', 'ownerCommentReplyEnabled', 'ownerMentionPollSeconds', 'interactionTopLimit', 'interactionSubLimit', 'dailyInteractionEvaluationLimit',
-    'learningEnabled', 'learningDailyTime', 'learningDailyReport', 'learningReportDetail', 'learningDirectionSuggestions', 'learningAdvice', 'learningDailyReviewLimit', 'learningFeedbackEnabled', 'learningCreativeIdeas',
+    'interactionKeywords', 'ownerCommentReplyEnabled', 'ownerMentionPollSeconds', 'selfCommentReplyEnabled', 'selfReplyPollSeconds', 'interactionTopLimit', 'interactionSubLimit', 'dailyInteractionEvaluationLimit',
+    'learningEnabled', 'learningKnowledgePacks', 'learningDailyTime', 'learningDailyReport', 'learningReportDetail', 'learningDirectionSuggestions', 'learningAdvice', 'learningDailyReviewLimit', 'learningFeedbackEnabled', 'learningCreativeIdeas',
     'weeklyAutoDraft', 'weeklyDay', 'weeklyTime', 'weeklyMinSources', 'weeklyDailyDraftLimit', 'weeklyDailyPublishLimit', 'weeklyMinIntervalHours', 'weeklyAutoImage']);
   assert(Object.keys(input).every(k => allowed.has(k)), 'INVALID_CONFIG', '包含当前版本不支持的设置。');
   const c = { ...previous, ...input };
@@ -37,8 +38,13 @@ export function configOf(input, previous) {
   c.privacyBlockedTerms = [...new Set(c.privacyBlockedTerms.map(t => t.trim()))];
   c.learningFeedbackEnabled ??= true;
   c.learningCreativeIdeas ??= true;
+  c.learningKnowledgePacks = validateKnowledgePacks(c.learningKnowledgePacks === undefined ? [] : c.learningKnowledgePacks);
+  c.dmUseBrowseHours ??= true;
   c.ownerCommentReplyEnabled ??= false;
   c.ownerMentionPollSeconds ??= 120;
+  c.selfCommentReplyEnabled ??= false; c.selfReplyPollSeconds ??= 120;
+  assert(typeof c.selfCommentReplyEnabled === 'boolean' && Number.isInteger(c.selfReplyPollSeconds) && c.selfReplyPollSeconds >= 60 && c.selfReplyPollSeconds <= 3600,
+    'INVALID_CONFIG', '自己评论回复开关或检查间隔无效（60～3600秒）。');
   assert(Number.isInteger(c.ownerMentionPollSeconds) && c.ownerMentionPollSeconds >= 60 && c.ownerMentionPollSeconds <= 3600,
     'INVALID_CONFIG', '@通知检查间隔需要为60～3600秒。');
   assert(typeof c.ownerCommentReplyEnabled === 'boolean', 'INVALID_CONFIG', '使用者评论区@回复开关无效。');
@@ -95,7 +101,7 @@ export function configOf(input, previous) {
   assert(!c.asrEnabled || c.asrModelPath, 'INVALID_CONFIG', '请先填写已有的本地转写模型目录。');
   assert(['tiny', 'base', 'small', 'medium'].includes(c.asrDownloadModel) && ['official', 'mirror'].includes(c.asrDownloadSource),
     'INVALID_CONFIG', '本地转写模型或下载源选项无效。');
-  for (const key of ['ownerAccountEnabled', 'ownerAttitudeEnabled', 'dmEnabled', 'dmAutoSend'])
+  for (const key of ['ownerAccountEnabled', 'ownerAttitudeEnabled', 'dmEnabled', 'dmAutoSend', 'dmUseBrowseHours'])
     assert(typeof c[key] === 'boolean', 'INVALID_CONFIG', '使用者或私信开关无效。');
   c.ownerAccountUid = uidOf(c.ownerAccountUid, !c.ownerAccountEnabled);
   assert(typeof c.ownerAccountName === 'string' && c.ownerAccountName.length <= 80 && !/[\r\n\0]/.test(c.ownerAccountName),

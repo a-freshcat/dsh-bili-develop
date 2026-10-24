@@ -70,6 +70,34 @@ test('daily review compares previous traits before autonomous selection and adop
 });
 const setupResponse = run => ({ runId: run.id, comparison: '与以前比较后，保留适合的部分并做少量调整。', decisions: [], additions: [], expression_decisions: [], report: '', direction: '' });
 
+test('knowledge advice participates in comparison separately from actual sources and unloading preserves learned traits', async t => {
+  const f = setup(t); await f.bind(); f.enable(); f.controller.configure({ learningKnowledgePacks: ['natural-short-zh'] });
+  await f.read('pack-review-source');
+  f.store.set('iteration:123', { version: 2, traits: [{ id: 'existing-trait', text: '保留自己的正式口吻', reason: '真实经历', sourceIds: ['pack-review-source'] }] });
+  f.nextDay(); const { id } = await f.controller.learning.review(); await f.controller.idle();
+  const run = f.store.run(id); assert.equal(run.state, 'completed');
+  assert.match(run.promptText, /知识包本身不算交流证据/);
+  assert.deepEqual(run.learningReview.knowledgePacks, [{ id: 'natural-short-zh', version: '1.0.0' }]);
+  assert.ok(run.learningReview.sources.every(s => s.id !== 'natural-short-zh')); assert.equal(run.learningReview.stats.videos, 1);
+  const prior = f.controller.learning.iteration(); f.controller.configure({ learningKnowledgePacks: [] });
+  assert.deepEqual(f.controller.learning.iteration(), prior, 'unload is not a silent memory wipe');
+});
+
+test('a daily comparison cannot invent a knowledge pack evidence source or apply after its selection changes', async t => {
+  for (const stale of [false, true]) {
+    const f = setup(t); await f.bind(); f.enable(); f.controller.configure({ learningKnowledgePacks: ['natural-short-zh'] });
+    await f.read('pack-evidence-' + stale); f.nextDay();
+    f.response = run => {
+      if (stale) f.store.set('config', { ...f.store.config(), learningKnowledgePacks: [] });
+      return { ...setupResponse(run), additions: stale ? [] : [{ text: '新习惯', reason: '参考建议', source_ids: ['natural-short-zh'] }] };
+    };
+    const { id } = await f.controller.learning.review(); await f.controller.idle();
+    assert.equal(f.store.run(id).state, 'failed');
+    if (stale) assert.equal(f.store.run(id).error.code, 'LEARNING_STALE');
+    assert.deepEqual(f.controller.learning.iteration().traits, []);
+  }
+});
+
 test('omitting an old trait rejects the whole daily mutation, keeping base and learned state intact', async t => {
   const f = setup(t); await f.bind(); f.enable(); await f.read('compare-source-1');
   f.store.set('iteration:123', { version: 2, traits: [{ id: 'trait-kept', text: '保留旧习惯', reason: '过去依据', sourceIds: [] }] });

@@ -57,3 +57,20 @@ test('interaction UI shows limits outside collapsed settings and filters automat
   assert.equal(flatten(tree).find(n => n?.props?.id === 'bili-interaction-settings').props.hidden, false);
   assert.ok(ui.calls.every(c => c.action === 'status')); assert.equal(f.counters.prompt, 0); assert.equal(f.counters.read, 0);
 });
+
+test('private schedule UI explains nighttime waiting and saves all-day private checks without changing browsing hours or sending', async t => {
+  const f = fixture(t, { now: () => Date.parse('2026-10-25T00:05:00+08:00') }); await f.bind();
+  f.controller.configure({ dmEnabled: true, dmAutoSend: true, dmUseBrowseHours: true, activityStart: '08:00', activityEnd: '23:00', timeZone: 'Asia/Singapore' });
+  const ui = await settingsHarness(f.controller); t.after(ui.close);
+  let tree = ui.render(); ui.button(tree, '关系').props.onClick(); tree = ui.render();
+  const inbox = flatten(tree).find(n => n?.props?.id === 'bili-people-messages');
+  assert.match(nodeText(inbox), /当前不在私信活动时段 08:00～23:00/); assert.match(nodeText(inbox), /自动发送已开启/);
+  const nav = flatten(tree).find(n => n?.props?.['aria-label'] === '关系与私信分区'); ui.button(nav, '设置').props.onClick(); tree = ui.render();
+  const label = flatten(tree).find(n => n?.type === 'label' && n.children.includes('私信自动检查沿用浏览活动时段（关闭则全天）'));
+  const checkbox = flatten(label).find(n => n?.type === 'input'); assert.equal(checkbox.props.checked, true);
+  checkbox.props.onChange({ target: { checked: false } }); tree = ui.render();
+  await ui.button(tree, '保存私信设置').props.onClick(); await ui.flush(); tree = ui.render();
+  assert.equal(f.store.config().dmUseBrowseHours, false); assert.equal(f.store.config().activityStart, '08:00'); assert.equal(f.store.config().activityEnd, '23:00');
+  assert.equal(f.controller.social.schedule().code, 'due');
+  assert.ok(ui.calls.every(c => ['status', 'configure'].includes(c.action))); assert.equal(f.counters.read, 0); assert.equal(f.counters.prompt, 0);
+});

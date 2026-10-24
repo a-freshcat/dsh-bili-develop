@@ -23,5 +23,6 @@
 - [adoresever/bilibili-mcp](https://github.com/adoresever/bilibili-mcp)
 - [namchengwuqiu/bilibili_autopilot](https://github.com/namchengwuqiu/bilibili_autopilot)
 - [c1overzz/dsh-bili-scroll](https://github.com/c1overzz/dsh-bili-scroll)
+- [ovo-arron/short-form-natural-zh](https://github.com/ovo-arron/short-form-natural-zh)：参考其短回复表达方法，核对版本0.1.0、提交`9029fdeb574b846cb8e34cfa86d4ff2eb3e430bf`，上游许可为AGPL-3.0-only，版权2026 ovo-arron and contributors。本项目“自然中文短回复”包是独立编写的简短表达建议，默认关闭；未捆绑上游SKILL、示例、第三方材料或执行脚本。直接分发上游文本及后续衍生内容时需另行核对许可义务。
 
 客户端小电视图标由内联矢量路径绘制，用于标识B站相关功能；相关品牌与商标权属于其权利人。

@@ -7,6 +7,8 @@ import { DEFAULT_CONFIG } from '../src/store.mjs';
 import { Comments } from '../src/comments.mjs';
 
 const row = (id, level = 'top', text = '鱼来') => ({ id, root: level === 'top' ? id : '101', uid: '456', level, text, name: '留言者' });
+const ownerSubs = { ownerAccountEnabled: true, ownerAccountUid: '456', ownerCommentReplyEnabled: true };
+const ownerRows = [row('101'), row('102'), { ...row('201', 'sub'), mentionedUids: ['123'] }, { ...row('202', 'sub'), mentionedUids: ['123'] }];
 async function setup(t, config = {}, hooks = {}) {
   let now = Date.parse('2026-10-23T04:00:00Z'), serial = 0;
   const calls = [], prompts = [];
@@ -78,19 +80,19 @@ test('owner reply sending rechecks mention via probe and publish; disabling inva
   g.controller.configure({ ownerCommentReplyEnabled: false });
   await assert.rejects(g.controller.comments.send(draft.id, draft.revision), { code: 'INTERACTION_DISABLED' });
 });
-test('each browsed video evaluates at most one top comment and one subreply, in the sole dialogue', async t => {
+test('keyword browsing evaluates ordinary comments only, not unrelated keyword subreplies, in the sole dialogue', async t => {
   const f = await setup(t); const source = await f.browse(); const replies = f.replies();
-  assert.equal(replies.length, 2); assert.deepEqual(replies.map(r => r.interactionTarget.level).sort(), ['sub', 'top']);
-  assert.equal(f.counters.create, 1); assert.equal(f.counters.prompt, 3);
+  assert.equal(replies.length, 1); assert.deepEqual(replies.map(r => r.interactionTarget.level), ['top']);
+  assert.equal(f.counters.create, 1); assert.equal(f.counters.prompt, 2);
   assert.equal(f.controller.scheduler.status().budget.analyses, 1);
-  assert.equal(f.controller.interactions.budget('123').evaluations, 2);
+  assert.equal(f.controller.interactions.budget('123').evaluations, 1);
   assert.ok(replies.every(r => r.sessionId === source.sessionId && r.state === 'preview' && r.commentPublication.state === 'draft'));
-  assert.equal(source.interactionScan.matches.length, 4, 'self-authored and nonmatching text are excluded');
+  assert.equal(source.interactionScan.matches.length, 2, 'self-authored, nonmatching and unrelated subreply text are excluded');
   assert.equal(f.posts().length, 0); assert.equal(f.controller.metadataBusy, false);
   assert.match(f.prompts.find(p => p.includes('关键词互动的一次')), /外部内容/);
 });
 test('zero and custom per-type limits are independent and duplicates are not evaluated again', async t => {
-  const f = await setup(t, { interactionTopLimit: 0, interactionSubLimit: 1 }); await f.browse();
+  const f = await setup(t, { ...ownerSubs, interactionTopLimit: 0, interactionSubLimit: 1 }, { rows: ownerRows }); await f.browse();
   assert.equal(f.replies().length, 1); assert.equal(f.replies()[0].interactionTarget.level, 'sub');
   await f.browse(); assert.equal(f.replies().length, 2, 'next eligible subreply may be selected');
   await f.browse(); assert.equal(f.replies().length, 2); assert.equal(f.counters.prompt, 5);
@@ -101,10 +103,10 @@ test('daily evaluation budget caps extra model work, and model may decline a mat
   const f = await setup(t, { dailyInteractionEvaluationLimit: 1 }); await f.browse(); await f.browse();
   assert.equal(f.replies().length, 1); assert.equal(f.counters.prompt, 3);
   const g = await setup(t, {}, { decline: true }); await g.browse();
-  assert.equal(g.replies().length, 2); assert.ok(g.replies().every(r => !r.preview.should_comment && !r.commentPublication));
+  assert.equal(g.replies().length, 1); assert.ok(g.replies().every(r => !r.preview.should_comment && !r.commentPublication));
 });
 test('top and subreply attempts are independently capped but share daily public quota and cooldown', async t => {
-  const f = await setup(t, { commentMode: 'manual', dailyCommentLimit: 2 }); await f.browse();
+  const f = await setup(t, { ...ownerSubs, commentMode: 'manual', dailyCommentLimit: 2 }, { rows: ownerRows }); await f.browse();
   const [a, b] = f.replies().map(r => r.commentPublication);
   await f.controller.comments.send(a.id, a.revision);
   await assert.rejects(f.controller.comments.send(b.id, b.revision), { code: 'COMMENT_COOLDOWN' });
@@ -155,7 +157,7 @@ test('24-hour boundaries distinguish noon, midnight, end24 and overnight', () =>
 });
 
 test('automatic interaction sending waits for pause and global cooldown, then sends each type at most once', async t => {
-  const f = await setup(t, { commentMode: 'auto' }, { videoDecline: true });
+  const f = await setup(t, { ...ownerSubs, commentMode: 'auto' }, { videoDecline: true, rows: ownerRows });
   f.controller.comments.pause(); await f.browse();
   f.controller.comments.tick(); assert.equal(f.posts().length, 0);
   f.controller.comments.resume(); f.controller.comments.tick(); await f.controller.comments.job;

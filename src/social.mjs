@@ -1,11 +1,12 @@
 import { createHash } from 'node:crypto';
-import { Contacts, eligibility, rankedContacts, parsePrivate } from './contacts.mjs';
+import { Contacts, eligibility, rankedContacts, parsePrivate, inlineEmotes } from './contacts.mjs';
 import { ownerUid, uidOf } from './owner.mjs';
 import { assert, errorView } from './errors.mjs';
-import { inActivity } from './time.mjs';
+import { inActivity, nextActivity } from './time.mjs';
+import { knowledgePolicyParts } from './knowledge-packs.mjs';
 
 const keyOf = (account, m) => 'dm-' + createHash('sha256').update(JSON.stringify([account, m.uid, m.id])).digest('hex').slice(0, 40);
-const draftPolicy = config => JSON.stringify([config.persona, ownerUid(config), config.ownerAccountName, config.ownerAttitudeEnabled]);
+const draftPolicy = config => JSON.stringify([config.persona, ownerUid(config), config.ownerAccountName, config.ownerAttitudeEnabled, ...knowledgePolicyParts(config)]);
 export class Social {
   constructor(controller) {
     this.c = controller; this.store = controller.store; this.contacts = new Contacts(this.store);
@@ -23,7 +24,32 @@ export class Social {
   configured(before, after) {
     if (after.dmEnabled && !before.dmEnabled) this.store.set('dmSince', this.c.now());
     if (this.account && ownerUid(after)) this.contacts.put(this.account, ownerUid(after), { name: after.ownerAccountName });
-    this.store.set('dmNextPoll', this.c.now() + after.dmPollSeconds * 1000);
+    const due = this.store.get('dmNextPoll'), now = this.c.now();
+    if (!Number.isFinite(due) || (!before.dmEnabled && after.dmEnabled) || (!before.dmAutoSend && after.dmAutoSend) ||
+      before.dmUseBrowseHours !== after.dmUseBrowseHours) this.store.set('dmNextPoll', now);
+    else if (before.dmPollSeconds !== after.dmPollSeconds && due > now) this.store.set('dmNextPoll', now + after.dmPollSeconds * 1000);
+  }
+  schedule() {
+    const c = this.c, config = this.store.config(), now = c.now(), due = this.store.get('dmNextPoll');
+    const pollAt = Number.isFinite(due) ? due : now;
+    const usesHours = config.dmUseBrowseHours !== false;
+    const next = usesHours ? nextActivity(Math.max(now, pollAt), config) : Math.max(now, pollAt);
+    let code, message;
+    if (c.closed) { code = 'stopped'; message = '插件已停止，自动检查不运行。'; }
+    else if (!config.dmEnabled) { code = 'off'; message = '私信读取未开启，自动检查已关闭。'; }
+    else if (this.paused) { code = 'paused'; message = '私信已暂停，继续后自动检查。'; }
+    else if (usesHours && !inActivity(now, config)) {
+      code = 'activity'; message = `当前不在私信活动时段 ${config.activityStart}～${config.activityEnd}（${config.timeZone}），等待下一个窗口。`;
+    } else if (this.busy) { code = 'checking'; message = '正在检查或处理私信，完成后自动安排下一次。'; }
+    else if (c.store.active() || c.scheduler.busy || c.scheduler.starting || c.weekly?.busy || c.installing || c.metadataBusy) {
+      code = 'busy'; message = '自动检查已开启，等待当前模型、浏览步骤或维护操作结束；空闲后继续。';
+    } else if (now < pollAt) { code = 'interval'; message = '自动检查已开启，等待下一次检查时间。'; }
+    else { code = 'due'; message = '已到自动检查时间，后台将在15秒内检查；普通额度用完不会停止检查使用者来信。'; }
+    return { code, message, usesBrowseHours: usesHours, nextCheckAt: ['off', 'paused', 'stopped'].includes(code) ? null : new Date(next).toISOString(),
+      lastCheckedAt: this.store.get('dmLastCheckAt'), lastAttemptAt: this.store.get('dmLastAttemptAt'),
+      automaticReply: config.dmEnabled && config.dmAutoSend && !this.paused, timeZone: config.timeZone,
+      replyMessage: !config.dmEnabled ? '私信未开启。' : this.paused ? '私信暂停中。' : config.dmAutoSend ?
+        '自动发送已开启，生成草稿后核对收件人、冷却与隐私；不符合条件时保留具体原因。' : '当前只生成草稿，需要手动确认发送。' };
   }
   status({ contactsOffset = 0, contactQuery = '', privateView = {} } = {}) {
     assert(Number.isInteger(contactsOffset) && contactsOffset >= 0 && contactsOffset <= 1000000 &&
@@ -56,10 +82,11 @@ export class Social {
       const person = byUid.get(m.uid);
       return { id: m.id, kind: m.kind || 'reply', uid: m.uid, isOwner: m.uid === uid, name: person?.name || '', state: m.state,
         at: m.at, text: m.text, draft: m.draft || '', evaluation: m.evaluation || '', reason: m.reason || '',
+        inlineEmotes: inlineEmotes(m.text),
         eligibility: eligibility(person, people, config, ranks) };
     }) : [];
     return { accountUid: this.account, enabled: config.dmEnabled, autoSend: config.dmAutoSend,
-      paused: this.paused, busy: !!this.busy, notice: this.notice || '', error: this.error || null,
+      paused: this.paused, busy: !!this.busy, notice: this.notice || '', error: this.error || null, schedule: this.schedule(),
       owner: uid && this.contacts.person(this.account, uid) ? annotate(this.contacts.person(this.account, uid)) : null,
       people: others.slice(contactsOffset, contactsOffset + 20).map(annotate), total: others.length,
       eligibleCount: Math.min(100, ranking.length), importPage: this.store.get('fanImport:' + this.account, 1),
@@ -110,7 +137,7 @@ export class Social {
     });
   }
   pause() { this.store.set('dmPaused', true); return { message: '私信已暂停；已发出的请求无法撤回。' }; }
-  resume() { this.store.set('dmPaused', false); return { message: '私信已继续，仍受开关、排名和额度限制。' }; }
+  resume() { this.store.set('dmPaused', false); this.store.set('dmNextPoll', this.c.now()); return { message: '私信已继续，后台将检查新来信；使用者普通回复不限次数。' }; }
   allowed() { return !this.c.closed && this.store.config().dmEnabled && !this.paused; }
   async scan() {
     assert(this.allowed(), 'DM_DISABLED', '请先保存并开启私信功能，或继续已暂停的私信。', 409);
@@ -119,6 +146,7 @@ export class Social {
   async process() {
     const c = this.c;
     this.store.set('dmNextPoll', c.now() + this.store.config().dmPollSeconds * 1000);
+    this.store.set('dmLastAttemptAt', c.now());
     const binding = await c.host.requireBinding();
     assert(!binding.running, 'SESSION_BUSY', '等待原汇总对话空闲。', 409);
     if (!this.allowed()) return;
@@ -127,12 +155,14 @@ export class Social {
     uidOf(found?.accountUid);
     assert(Array.isArray(found.messages) && found.messages.length <= 20, 'DM_INBOX', '私信列表格式无效。');
     this.setAccount(found.accountUid);
+    this.store.set('dmLastCheckAt', c.now());
+    let waitingReason = '';
     if (this.store.config().dmAutoSend) {
       for (const incoming of found.messages) {
         const m = this.contacts.message(keyOf(this.account, incoming));
         if (m?.state !== 'draft') continue;
         if (!this.allowed()) return;
-        try { await this.send(m.id, true); } catch (error) { this.notice = errorView(error).message; }
+        try { await this.send(m.id, true); } catch (error) { waitingReason = this.hold(m.id, error); }
       }
     }
     for (const incoming of [...found.messages].sort((a, b) => b.at - a.at)) {
@@ -144,7 +174,7 @@ export class Social {
       const id = keyOf(this.account, incoming);
       if (this.contacts.message(id) || incoming.at < this.store.get('dmSince', c.now()) || incoming.uid === this.account) continue;
       const budget = this.contacts.budget(this.account, incoming.uid, this.store.config(), c.now());
-      if (budget.evaluations >= budget.evaluationLimit) { this.notice = '今日私信评价额度已用完（0关闭）。'; return; }
+      if (!budget.ownerExempt && budget.evaluations >= budget.evaluationLimit) { waitingReason = '今日计额私信评价上限已用完，使用者普通来信除外。'; continue; }
       const actual = await c.reader().call('dm_thread', { uid: incoming.uid, expected_account: this.account });
       if (!this.allowed()) return;
       assert(actual?.accountUid === this.account && actual.uid === incoming.uid, 'ACCOUNT_CHANGED', '私信账号不匹配。');
@@ -162,7 +192,7 @@ export class Social {
       const run = this.store.update(id, { dmPayload: payload });
       if (reserved.fresh) { c.launch(id, () => c.execute(run)); await c.jobs.get(id); }
       if (this.allowed() && this.store.config().dmAutoSend && this.contacts.message(id)?.state === 'draft') {
-        try { await this.send(id, true); } catch (error) { this.notice = errorView(error).message; }
+        try { await this.send(id, true); } catch (error) { this.hold(id, error); }
       }
       if (!c.closed && !this.error) {
         const completed = this.contacts.message(id);
@@ -171,7 +201,13 @@ export class Social {
       }
       return;
     }
-    this.notice = '检查完成，最近20个私聊中没有尚未处理的合格新文本来信。';
+    this.notice = waitingReason || '检查完成，最近20个私聊中没有尚未处理的合格新文本来信。';
+  }
+  hold(id, error) {
+    const view = errorView(error), m = this.contacts.message(id);
+    if (m?.state === 'draft') this.contacts.saveMessage({ ...m, reason: view.message, sendError: view });
+    this.notice = view.message;
+    return view.message;
   }
   complete(run, raw) {
     const config = run.configSnapshot;
@@ -210,7 +246,7 @@ export class Social {
     const gate = eligibility(this.contacts.person(m.accountUid, m.uid), this.contacts.all(m.accountUid), this.store.config());
     assert(gate.allowed && m.uid !== this.account, 'DM_NOT_ELIGIBLE', gate.reason, 409);
     const config = this.store.config(), b = this.contacts.budget(m.accountUid, m.uid, config, this.c.now());
-    assert(b.replies < b.replyLimit && b.personReplies < b.personLimit, 'DM_LIMIT', '已达到每日或单联系人私信回复上限。', 409);
+    this.contacts.assertReplyQuota(b, m.kind);
     assert(!b.latest || this.c.now() - b.latest >= config.dmMinIntervalSeconds * 1000, 'DM_INTERVAL', '尚未达到该联系人的最短回复间隔。', 409);
   }
   async send(id, auto = false) {
@@ -219,7 +255,7 @@ export class Social {
     const obsolete = value => value.receivedAt < this.store.get('dmSince', Infinity) || value.draftPolicy !== draftPolicy(this.store.config()) ||
       value.draftScore !== this.contacts.person(value.accountUid, value.uid)?.score;
     if (obsolete(m)) {
-      this.contacts.saveMessage({ ...m, state: 'skipped', reason: '身份、人设、评分或启用时间已变化，旧草稿不发送。' }); return;
+      this.contacts.saveMessage({ ...m, state: 'skipped', reason: '身份、人设、知识包、评分或启用时间已变化，旧草稿不发送。' }); return;
     }
     const config = this.store.config();
     assert(m.draft?.trim() && m.draft.length <= config.dmMaxChars, 'DM_TEXT', '当前字数上限不允许此草稿。');
@@ -271,12 +307,11 @@ export class Social {
     });
     return { message: '私信内容、草稿及对应本地评价内容已清理。去重、计数和原对话消息保留。' };
   }
-  start() { this.timer = setInterval(() => this.tick(), 15000); this.timer.unref?.(); }
+  start() { clearInterval(this.timer); this.timer = setInterval(() => this.tick(), 15000); this.timer.unref?.(); this.tick(); }
   tick() {
-    if (!this.allowed() || this.busy || this.c.store.active() || (this.c.store.openRound() && !this.c.scheduler.paused) || this.c.scheduler.busy ||
-      this.c.scheduler.starting || this.c.weekly?.busy || this.c.installing || this.c.metadataBusy || this.c.now() < this.store.get('dmNextPoll', Infinity) ||
-      !inActivity(this.c.now(), this.store.config())) return;
-    this.background(() => this.process());
+    if (this.schedule().code !== 'due') return;
+    try { this.background(() => this.process()); }
+    catch (error) { this.error = errorView(error); this.notice = this.error.message; }
   }
   close() { clearInterval(this.timer); }
 }

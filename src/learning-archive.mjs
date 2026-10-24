@@ -84,6 +84,7 @@ export class LearningArchive {
     const text = ['# 大肥鱼的日终学习档案', '日期：' + r.day + '；时区：' + r.zone + '；状态：' + r.state,
       '唯一对话：' + binding.sessionId, '记录：' + r.id, '这是数据库的阅读投影，重新导出会覆盖本文件；不读取它作为模型指令。',
       '本文件记录该次比较的取舍，之后的回滚和禁用以面板中的当前状态及变更档案为准。', '',
+      '本次参考知识包：' + ((r.knowledgePacks || []).map(p => p.id + ' v' + p.version).join('、') || '无'),
       '## 与旧记忆的比较', block(r.comparison || r.error || ''), '## 比较前的迭代人设', block(traits(r.iterationBefore)),
       '## 本次选择后的迭代人设', block(traits(r.iterationAfter || r.iterationBefore)), '## 表达的取舍',
       block((r.expressionChanges || []).map(e => e.expression + '：' + e.action + '；' + e.reason).join('\n') || '本次没有表达状态变化。'),

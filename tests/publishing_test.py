@@ -86,6 +86,9 @@ class PublishingTests(unittest.IsolatedAsyncioTestCase):
             self.root(rpid=604, root=555, parent=555, ctime=100, member={'mid': 123})]}
         found = await self.dispatch('comment_feedback', comment_id='555', root_id='555', attempted_at=100000)
         self.assertEqual([r['id'] for r in found['replies']], ['601'])
+        self.assertEqual(found['replies'][0]['parent'], '555')
+        self.assertEqual(found['replies'][0]['root'], '555')
+        self.assertEqual(found['replies'][0]['at'], 100000)
         self.assertEqual(self.posts, [])
         for changes in [{'member': {'mid': 456}}, {'content': {'message': '另一条评论'}}]:
             self.subcomments.return_value['root'] = {**original, **changes}
@@ -96,6 +99,19 @@ class PublishingTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(publishing.PublishError) as cm:
             await self.dispatch(text='内容包含test-placeholder')
         self.assertEqual(cm.exception.code, 'PRIVACY_BLOCKED')
+        self.assertEqual(self.posts, [])
+
+    async def test_direct_reply_preflight_requires_parent_to_be_current_accounts_comment(self):
+        own = self.root(rpid=555, member={'mid': 123}, content={'message': '内容很清晰。'})
+        reply = self.root(rpid=601, root=555, parent=555, content={'message': '这句可以再自然一点。'})
+        self.subcomments.return_value = {'root': own, 'replies': [reply]}
+        target = {'id': '601', 'root': '555', 'uid': '456', 'text': '这句可以再自然一点。', 'level': 'sub'}
+        found = await self.dispatch('comment_reply_probe', target=target, self_reply_parent='555')
+        self.assertEqual(found['target'], target)
+        for root, row in [({**own, 'member': {'mid': 999}}, reply), (own, {**reply, 'parent': 999})]:
+            self.subcomments.return_value = {'root': root, 'replies': [row]}
+            with self.assertRaises(publishing.PublishError):
+                await self.dispatch('comment_reply_publish', target=target, self_reply_parent='555')
         self.assertEqual(self.posts, [])
 
     async def test_keyword_scan_is_empty_without_network_when_disabled(self):
@@ -158,9 +174,9 @@ class PublishingTests(unittest.IsolatedAsyncioTestCase):
         self.subcomments.side_effect = fetch
         result = await self.dispatch("interaction_scan", keywords=["鱼来"], top_limit=1, sub_limit=1)
         self.assertEqual(result["topRead"], 20)
-        self.assertEqual(self.subcomments.await_count, 3)
-        self.assertEqual(sum(r["level"] == "sub" for r in result["matches"]), 1)
-        self.assertEqual(result["matches"][-1]["id"], "201")
+        self.assertEqual(self.subcomments.await_count, 0, 'keywords never browse unrelated subthreads')
+        self.assertEqual(sum(r["level"] == "sub" for r in result["matches"]), 0)
+        self.assertTrue(all(r['level'] == 'top' for r in result['matches']))
         self.assertEqual(self.posts, [])
 
     async def test_reply_send_binds_real_root_parent_and_rechecks_original_text(self):
