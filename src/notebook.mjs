@@ -61,6 +61,7 @@ export function writeNote(root, run) {
     '# ' + (run.evidence?.title || (run.kind === 'probe' ? '单对话接入检查' : run.bvid)),
     '', '任务：' + run.id, '时间：' + run.createdAt, '状态：' + run.state,
     '唯一对话：' + run.sessionId, '',
+    ...(run.source === 'owner_mention' ? ['来源：使用者@触发的视频阅读；不占自主浏览轮次或视频分析次数，受评论互动判断额度控制。', ''] : []),
     ...(run.browseSelection?.mode === 'autonomous' ? ['## 自主选片入口',
       '来自B站推荐候选；本轮想了解：' + run.browseSelection.intent,
       '选片理由：' + run.browseSelection.reason,
@@ -70,12 +71,17 @@ export function writeNote(root, run) {
       '检索TAG：' + run.browseSelection.query + '；匹配方式：' + run.browseSelection.match,
       '实际标签：' + run.browseSelection.tags.map(t => t.name + '（' + t.id + '）').join('、'),
       '核对时间：' + run.browseSelection.checkedAt + '；标签只代表分类，不能替代内容依据。', ''] : []),
-    ...(run.interactionTarget ? ['## 关键词命中的原留言', '类别：' + (run.interactionTarget.level === 'sub' ? '楼中楼' : '普通留言'),
+    ...(run.interactionTarget ? ['## ' + (run.interactionTrigger === 'owner_mention' ? '使用者@原留言' : '命中的原留言'), '类别：' + (run.interactionTarget.level === 'sub' ? '楼中楼' : '普通留言'),
       '评论ID：' + run.interactionTarget.id + '；根评论：' + run.interactionTarget.root,
       run.interactionTarget.text, ''] : []),
     ...(run.interactionScan ? ['## 评论区关键词检索', run.interactionScan.message || '', ''] : []),
     ...(run.bvid ? ['视频：https://www.bilibili.com/video/' + run.bvid,
       '依据：' + run.evidence.source + '；覆盖范围：' + run.evidence.coverage, ''] : []),
+    ...(run.evidence?.source === 'frames' ? ['说明：以下是按秒均匀抽取的画面帧，未播放音频、未读取语音，也不代表完整视频。',
+      '实际抽帧：' + (run.evidence.totalFrames || 0) + ' 帧；时间点（秒）：' +
+        (run.evidence.frames || []).map(f => f.at).join('、'),
+      '处理区间（秒）：' + (run.evidence.processedRanges || []).map(r => r.from + '–' + r.to).join('、') +
+        '；本机用PyAV解码，未调用外部服务。', ''] : []),
     ...(community ? ['说明：以下是评论区样本转述，未播放或分析音频，不代表视频事实或全体观众。',
       '有效评论样本：' + run.evidence.commentSample.count + '；范围：整个视频评论区，非收听片段。',
       '已读排序：' + run.evidence.commentSample.orders.join('、') +
@@ -103,6 +109,10 @@ export function writeNote(root, run) {
         '> ' + row.text.replace(/([\[\]<>])/g, '\\$1').replace(/\n/g, '\n> '),
         `[查看评论](${row.url}) · ${row.order === 'hot' ? '热评' : '最新评论'} · ${row.likes}赞` + (row.truncated ? ' · 已截短' : ''), '',
       ])] : []),
+    ...(run.evidence?.discussion ? ['', '## 关联讨论样本（非完整评论区）',
+      '已读：' + run.evidence.discussion.count + '条；不可读排序：' + (run.evidence.discussion.failedOrders.join('、') || '无'),
+      ...run.evidence.discussion.comments.flatMap(row => ['> ' + row.text.replace(/([\[\]<>])/g, '\\$1').replace(/\n/g, '\n> '),
+        '[查看评论](' + row.url + ') · ' + ({ thread: '关联楼层', hot: '热评', recent: '最新评论' })[row.order], ''])] : []),
     '',
   ];
   const target = join(directory, run.id + '.md');

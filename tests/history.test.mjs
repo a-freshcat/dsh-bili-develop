@@ -106,3 +106,34 @@ test('diagnostics is local and omits all account, model text, persona and path d
   assert.equal(report.records.public, 1); assert.equal(report.pluginVersion, JSON.parse(readFileSync('package.json', 'utf8')).version); assert.equal(report.modes.weeklyAlwaysReviewed, true);
   assert.equal(f.counters.prompt, 0); assert.equal(f.counters.read, 0);
 });
+
+test('record page aggregates withheld comments and DMs so nothing waits in a separate tab', async t => {
+  const f = await setup(t), binding = f.store.get('binding');
+  // A draft that the owner withheld, and a private reply the model failed to finish.
+  f.store.db.prepare('INSERT INTO comment_drafts VALUES(?,?,?,?,?)').run('withheld-comment', '123', BV, 'draft',
+    JSON.stringify({ id: 'withheld-comment', kind: 'video', accountUid: '123', bvid: BV, text: '被拦下的评论正文',
+      target: { id: '900', root: '900', uid: '456', text: '对方原留言', level: 'top' }, state: 'draft',
+      createdAt: f.clock.value, reason: '隐私审核未通过，转人工确认' }));
+  f.store.db.prepare('INSERT INTO comment_drafts VALUES(?,?,?,?,?)').run('sent-comment', '123', BV, 'sent',
+    JSON.stringify({ id: 'sent-comment', kind: 'video', accountUid: '123', bvid: BV, text: '已发出的评论', state: 'sent',
+      createdAt: f.clock.value, reason: '平台已返回评论编号' }));
+  f.controller.social.contacts.saveMessage({ id: 'withheld-dm', accountUid: '123', uid: '456', state: 'failed',
+    at: f.clock.value, text: '收到的私信', draft: '未发出的回复', reason: '模型本轮未正常完成，未采纳草稿。' });
+
+  const pending = f.controller.history.pending();
+  assert.equal(pending.total, 2, 'only the withheld comment and the failed DM are pending');
+  assert.equal(pending.comments, 1); assert.equal(pending.messages, 1);
+  assert.equal(pending.manual, 2, 'both items need human confirmation');
+  const kinds = pending.items.map(i => i.kind + ':' + i.id).sort();
+  assert.deepEqual(kinds, ['comment:withheld-comment', 'dm:withheld-dm']);
+  const comment = pending.items.find(i => i.kind === 'comment');
+  assert.match(comment.text, /被拦下的评论正文/); assert.match(comment.targetText, /对方原留言/);
+  assert.match(comment.url, /#reply900$/);
+  const dm = pending.items.find(i => i.kind === 'dm');
+  assert.match(dm.text, /未发出的回复/); assert.match(dm.url, /space\.bilibili\.com\/456/);
+
+  // Sending status is surfaced through the same payload the record page renders.
+  const status = await f.controller.dispatch({ action: 'status' });
+  assert.equal(status.history.pending.total, 2);
+  assert.equal(f.counters.prompt, 0); assert.equal(f.counters.read, 0);
+});

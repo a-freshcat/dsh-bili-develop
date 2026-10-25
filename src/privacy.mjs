@@ -77,7 +77,7 @@ export class Privacy {
     if (revision !== null && this.contextCache?.session === session && this.contextCache.revision === revision) return { ...this.contextCache.value };
     const rows = this.db.prepare('SELECT id,account_uid,recipient_uid FROM privacy_scopes WHERE session_id=? ORDER BY id').all(session);
     const value = { sharedPrivateContext: rows.length > 0, privateRecipientCount: new Set(rows.map(r => r.account_uid + ':' + r.recipient_uid)).size,
-      contextHash: hash([session, rows]), warning: rows.length ? '原对话含私信历史：公开自动发送已阻止，逐条外发需要额外隐私审核；清理本地私信不等于清理原对话。' : '' };
+      contextHash: hash([session, rows]), warning: rows.length ? '原对话含私信历史：公开评论按所选隐私模式检查，跨联系人私信和动态保留各自审核；清理本地私信不等于清理原对话。' : '' };
     if (revision !== null) this.contextCache = { session, revision, value };
     return { ...value };
   }

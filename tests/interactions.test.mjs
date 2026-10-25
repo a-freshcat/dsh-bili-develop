@@ -14,8 +14,12 @@ async function setup(t, config = {}, hooks = {}) {
   const calls = [], prompts = [];
   const f = fixture(t, { now: () => now, output: (text, id) => {
     prompts.push(text);
-    if (text.includes('评论区关键词互动的一次只读判断')) {
-      const { target } = JSON.parse(text.split('\n').at(-1));
+    // Both the keyword-interaction prompt and the owner-mention video prompt end
+    // with a { target } payload; either way the reply must quote that comment.
+    const last = text.split('\n').at(-1);
+    let target;
+    try { target = JSON.parse(last)?.target; } catch { target = undefined; }
+    if (target) {
       return JSON.stringify({ ...preview(id), summary: '留言互动', comment: '我来啦，有什么想聊的？' + target.id, evidence_quote: target.text,
         should_comment: !hooks.decline, ...(hooks.decline ? { comment: '' } : {}), mention_uids: [] });
     }
@@ -23,7 +27,11 @@ async function setup(t, config = {}, hooks = {}) {
   }, call: async (method, p) => {
     calls.push({ method, p });
     if (hooks.call) { const result = await hooks.call(method, p); if (result !== undefined) return result; }
-    if (method === 'read_video') return { ...f.evidence, bvid: p.bvid };
+    if (method === 'read_video') return { bvid: p.bvid, title: '测试字幕材料', source: 'subtitle', coverage: 'complete', language: '中文',
+      text: '测试字幕原文内容足够验证。', segments: [{ from: 0, to: 4, text: '测试字幕原文内容足够验证。' }],
+      totalSegments: 1, accountUid: '123', readAt: new Date(now).toISOString() };
+    if (method === 'mentioned_video_context') return { bvid: p.bvid, accountUid: p.expected_account, target: p.target,
+      discussion: { comments: [], count: 0, limit: 20, maxChars: 6000, orders: ['thread', 'hot', 'recent'], failedOrders: [] } };
     const found = { bvid: p.bvid, accountUid: p.expected_account, oid: '987', mentions: p.mentions || [] };
     if (method === 'interaction_scan') return { ...found, matches: hooks.rows || [row('101'), row('102'), row('201', 'sub'), row('202', 'sub'), { ...row('103'), uid: '123' }, row('104', 'top', '没有关键词')], topRead: 5, subRead: 2, failedThreads: 0 };
     if (method === 'comment_reply_probe') return { ...found, target: p.target };
@@ -33,7 +41,10 @@ async function setup(t, config = {}, hooks = {}) {
   } });
   await f.bind(); f.controller.configure({ interactionKeywords: ['鱼来'], commentMinIntervalSeconds: 60, ...config });
   const browse = async () => { const id = 'interaction-video-' + ++serial; await f.controller.start({ requestId: id, bvid: BV }); await f.controller.idle(); return f.store.run(id); };
-  return { ...f, calls, prompts, browse, advance(ms = 60000) { now += ms; }, replies() { return f.store.list(100).filter(r => r.kind === 'interaction'); },
+  // Owner-mention replies are stored as video-sourced reads, so select them by
+  // trigger rather than by kind.
+  return { ...f, calls, prompts, browse, advance(ms = 60000) { now += ms; },
+    replies() { return f.store.list(100).filter(r => r.kind === 'interaction' || r.interactionTrigger === 'owner_mention'); },
     posts() { return calls.filter(c => c.method === 'comment_reply_publish'); } };
 }
 
@@ -51,7 +62,7 @@ test('owner platform mention independently triggers, has priority, and does not 
   assert.equal(f.replies().length, 1); const r = f.replies()[0];
   assert.equal(r.interactionTarget.id, '102'); assert.equal(r.interactionTrigger, 'owner_mention');
   assert.equal(f.calls.find(c => c.method === 'interaction_scan').p.owner_mention_uid, owner);
-  assert.ok(!f.prompts.find(p => p.includes('关键词互动的一次')).includes(owner));
+  assert.ok(!f.prompts.some(p => p.includes(owner)), 'owner UID must not reach the public model prompt');
   assert.equal(f.posts().length, 0);
   const g = await setup(t, { interactionKeywords: [], ownerAccountEnabled: true, ownerAccountUid: owner, ownerCommentReplyEnabled: true },
     { rows: [{ ...row('103', 'top', '@大肥鱼 来看看'), uid: owner, mentionedUids: ['123'] }] });
@@ -89,7 +100,7 @@ test('keyword browsing evaluates ordinary comments only, not unrelated keyword s
   assert.ok(replies.every(r => r.sessionId === source.sessionId && r.state === 'preview' && r.commentPublication.state === 'draft'));
   assert.equal(source.interactionScan.matches.length, 2, 'self-authored, nonmatching and unrelated subreply text are excluded');
   assert.equal(f.posts().length, 0); assert.equal(f.controller.metadataBusy, false);
-  assert.match(f.prompts.find(p => p.includes('关键词互动的一次')), /外部内容/);
+  assert.match(f.prompts.find(p => p.includes('互动的一次')), /外部内容/);
 });
 test('zero and custom per-type limits are independent and duplicates are not evaluated again', async t => {
   const f = await setup(t, { ...ownerSubs, interactionTopLimit: 0, interactionSubLimit: 1 }, { rows: ownerRows }); await f.browse();
@@ -157,7 +168,11 @@ test('24-hour boundaries distinguish noon, midnight, end24 and overnight', () =>
 });
 
 test('automatic interaction sending waits for pause and global cooldown, then sends each type at most once', async t => {
-  const f = await setup(t, { ...ownerSubs, commentMode: 'auto' }, { videoDecline: true, rows: ownerRows });
+  // One keyword top reply plus one owner sub mention. commentsPaused defers every
+  // automatic send, so both replies are drafted without an immediate POST, then
+  // the cooldown admits exactly one per tick.
+  const f = await setup(t, { ...ownerSubs, commentMode: 'auto', interactionTopLimit: 1, interactionSubLimit: 1, perRoundCommentLimit: 2 },
+    { videoDecline: true, rows: [{ ...row('101'), uid: '999' }, { ...row('201', 'sub'), mentionedUids: ['123'] }] });
   f.controller.comments.pause(); await f.browse();
   f.controller.comments.tick(); assert.equal(f.posts().length, 0);
   f.controller.comments.resume(); f.controller.comments.tick(); await f.controller.comments.job;

@@ -205,6 +205,6 @@ async def run(obj, params, data_dir, account_uid):
         except Exception:
             raise AudioError("AUDIO_MODEL", "本地模型加载或转写未完成；请检查模型格式、内存和运行依赖。") from None
     return {**result, "bvid": bvid, "cid": cid, "accountUid": account_uid, "source": "asr",
-            "coverage": "complete" if not result["truncated"] and result["processedSeconds"] >= duration - 0.1 else "partial",
+            "coverage": "none" if not result["segments"] else "complete" if not result["truncated"] and result["processedSeconds"] >= duration - 0.1 else "partial",
             "totalSegments": len(result["segments"]), "processedRanges": [{"from": 0, "to": result["processedSeconds"]}],
-            "skipReason": None if result["text"] else "已处理音频中未检测到可靠讲话；未推断ASMR音效或编造台词。"}
+            "skipReason": None if result["text"] else "音轨中未识别出可靠讲话，已跳过评价；讲话转写不读取画面文字，只有画面字幕的视频需要画面文字识别（OCR）。"}

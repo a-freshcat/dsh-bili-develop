@@ -59,6 +59,18 @@ class AudioTests(unittest.IsolatedAsyncioTestCase):
         segments, _ = audio.normalize_segments([row(silence=.9), row(log=-2)], 10, 1000)
         self.assertEqual(segments, [])
 
+    async def test_empty_transcription_marks_no_text_coverage_and_explains_screen_text_boundary(self):
+        obj = SimpleNamespace(get_info=AsyncMock(return_value={'cid': 123, 'duration': 63}),
+                              get_download_url=AsyncMock(return_value={'dash': {'audio': [{'baseUrl': 'https://upos.bilivideo.com/a'}]}}))
+        result = {'segments': [], 'text': '', 'processedSeconds': 62.647, 'truncated': False, 'language': 'en'}
+        with tempfile.TemporaryDirectory(dir=ROOT / '.runtime') as directory:
+            with patch.object(audio, 'check_environment', return_value={'ready': True}), patch.object(audio, 'download', AsyncMock()), patch.object(audio, 'transcribe', return_value=result):
+                found = await audio.run(obj, {'bvid': 'BV1xx411c7mD', 'cid': 123, 'seconds': 63, 'expected_account': 'fixture', 'model_path': 'fixture'}, Path(directory), 'fixture')
+        self.assertEqual(found['coverage'], 'none')
+        self.assertEqual(found['totalSegments'], 0)
+        self.assertIn('画面文字', found['skipReason'])
+        self.assertIn('OCR', found['skipReason'])
+
     def test_timestamps_and_character_budget_are_bounded(self):
         rows = [SimpleNamespace(start=0, end=3, text="第一段讲话", no_speech_prob=0, avg_logprob=0),
                 SimpleNamespace(start=2, end=99, text="第二段讲话", no_speech_prob=0, avg_logprob=0)]

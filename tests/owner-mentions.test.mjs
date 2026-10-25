@@ -5,6 +5,10 @@ import { OwnerMentions } from '../src/owner-mentions.mjs';
 
 async function setup(t, options = {}) {
   let now = Date.parse('2026-10-24T12:00:00+08:00'); const calls = [], prompts = [];
+  const evidence = { bvid: BV, title: '测试字幕材料', source: 'subtitle', coverage: 'complete', language: '中文',
+    text: '测试字幕原文内容足够验证。', segments: [{ from: 0, to: 4, text: '测试字幕原文内容足够验证。' }],
+    totalSegments: 1, accountUid: '123', readAt: new Date(now).toISOString() };
+  const discussion = { comments: [], count: 0, limit: 20, maxChars: 6000, orders: ['thread', 'hot', 'recent'], failedOrders: [] };
   const item = (id, level = 'top') => ({ id, root: level === 'top' ? id : '101', uid: '789', text: '@大肥鱼 你怎么看这个？', level,
     mentionedUids: ['123'], bvid: BV, notificationId: '9' + id, at: now });
   const f = fixture(t, { now: () => now, output: (text, id) => {
@@ -12,8 +16,12 @@ async function setup(t, options = {}) {
     return JSON.stringify({ ...preview(id), comment: '这个问题值得一起聊聊。' + target.id, evidence_quote: target.text });
   }, call: async (method, p) => {
     calls.push({ method, p });
+    // A custom call handler for one method must not starve the reader of the
+    // newly required video/discussion reads, so fall through before them.
     if (options.call) { const value = await options.call(method, p); if (value !== undefined) return value; }
     if (method === 'owner_mentions') return { accountUid: '123', matches: options.items?.(item) || [item('101'), item('102'), item('201', 'sub')] };
+    if (method === 'read_video') return { ...evidence, bvid: p.bvid, accountUid: '123' };
+    if (method === 'mentioned_video_context') return { accountUid: '123', bvid: p.bvid, target: p.target, discussion };
     if (method === 'comment_reply_probe' || method === 'comment_reply_publish') return { accountUid: '123', bvid: p.bvid, oid: '987', target: p.target, mentions: [], confirmed: true, receipt: '555' };
     throw new Error(method);
   } });
@@ -21,15 +29,21 @@ async function setup(t, options = {}) {
   f.controller.configure({ ownerAccountEnabled: true, ownerAccountUid: '789', ownerCommentReplyEnabled: true, interactionKeywords: [], ...options.config });
   return { ...f, item, calls, prompts, advance(ms = 120000) { now += ms; },
     async scan() { f.controller.ownerMentions.scan(); await f.controller.ownerMentions.job; },
-    replies() { return f.store.list(100).filter(r => r.kind === 'interaction'); } };
+    // Owner-mention replies are video-sourced reads, so they are not kind='interaction'.
+    replies() { return f.store.list(100).filter(r => r.interactionTrigger === 'owner_mention'); } };
 }
 
 test('owner at notifications from unbrowsed videos create only bound reply drafts, with per-check type limits and no video analysis', async t => {
   const f = await setup(t); await f.scan();
   assert.equal(f.replies().length, 2); assert.equal(f.counters.prompt, 2); assert.equal(f.counters.create, 1);
   assert.ok(f.replies().every(r => r.interactionOrigin === 'notification' && r.interactionTrigger === 'owner_mention' && r.state === 'preview'));
-  assert.equal(f.store.db.prepare("SELECT COUNT(*) n FROM runs WHERE kind='video'").get().n, 0);
-  assert.ok(f.calls.every(c => c.method === 'owner_mentions')); assert.equal(f.controller.metadataBusy, false);
+  // These reads are video-sourced, but they must not consume the analysis budget.
+  assert.equal(f.store.db.prepare("SELECT COUNT(*) n FROM usage_ledger WHERE kind='analysis'").get().n, 0);
+  assert.equal(f.store.audioBudget(f.store.config()).requests, 0);
+  // The notification read, plus exactly the video and discussion reads it needs.
+  assert.ok(f.calls.every(c => ['owner_mentions', 'read_video', 'mentioned_video_context'].includes(c.method)));
+  assert.equal(f.calls.filter(c => c.method === 'read_video').length, 2);
+  assert.equal(f.controller.metadataBusy, false);
   assert.equal(f.controller.interactions.budget('123').evaluations, 2);
 });
 
@@ -85,7 +99,8 @@ test('owner mention automatic replies retain shared-private-context privacy gate
   const d = f.replies()[0].commentPublication;
   f.controller.privacy.remember('synthetic-private', f.store.get('binding').sessionId, '123', '789', ['仅用于隐私回归的私信原文']);
   await assert.rejects(f.controller.comments.send(d.id, d.revision, true), { code: 'PRIVACY_AUTO_BLOCKED' });
-  assert.ok(f.calls.every(c => c.method === 'owner_mentions'));
+  // Only the notification read plus the video/discussion reads it needs; no publishing call.
+  assert.ok(f.calls.every(c => ['owner_mentions', 'read_video', 'mentioned_video_context'].includes(c.method)));
 });
 
 test('wrong account, old notifications and wrong author fail closed without model or send', async t => {

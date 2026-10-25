@@ -26,6 +26,7 @@ export class Comments {
     this.c = c; this.store = c.store; this.db = c.store.db;
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS comment_drafts(id TEXT PRIMARY KEY,account_uid TEXT NOT NULL,bvid TEXT NOT NULL,state TEXT NOT NULL,data TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS comment_account_state ON comment_drafts(account_uid,state);
       CREATE TABLE IF NOT EXISTS comment_attempts(id TEXT PRIMARY KEY,account_uid TEXT NOT NULL,bvid TEXT NOT NULL,round_key TEXT NOT NULL,text_hash TEXT NOT NULL,at_ms INTEGER NOT NULL,UNIQUE(account_uid,bvid));
       CREATE INDEX IF NOT EXISTS comment_usage ON comment_attempts(account_uid,at_ms);
       CREATE TABLE IF NOT EXISTS reply_attempts(id TEXT PRIMARY KEY,account_uid TEXT NOT NULL,bvid TEXT NOT NULL,target_id TEXT NOT NULL,source_id TEXT NOT NULL,level TEXT NOT NULL,round_key TEXT NOT NULL,text_hash TEXT NOT NULL,at_ms INTEGER NOT NULL,UNIQUE(account_uid,bvid,target_id));
@@ -39,6 +40,7 @@ export class Comments {
     }
   }
   get paused() { return this.store.get('commentsPaused', false); }
+  requiresPrivacyReview() { return this.store.config().commentPrivacyMode !== 'content' && this.c.privacy.context().sharedPrivateContext; }
   get(id) { const row = this.db.prepare('SELECT data FROM comment_drafts WHERE id=?').get(id); return row ? JSON.parse(row.data) : null; }
   save(d, note = true) {
     this.db.prepare('INSERT INTO comment_drafts VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET state=excluded.state,data=excluded.data')
@@ -49,12 +51,35 @@ export class Comments {
     }
     return d;
   }
-  status() {
+  published(view = {}) {
+    assert(view && typeof view === 'object' && !Array.isArray(view) && Object.keys(view).every(k => ['offset', 'q', 'account'].includes(k)),
+      'COMMENT_PAGE', '已发评论查询无效。');
+    assert(Number.isInteger(view.offset ?? 0) && (view.offset ?? 0) >= 0 && (view.offset ?? 0) <= 1000000 &&
+      typeof (view.q ?? '') === 'string' && (view.q ?? '').length <= 100 && (!view.account || typeof view.account === 'string'),
+      'COMMENT_PAGE', '已发评论分页或搜索条件无效。');
+    const account = this.c.social.account || this.store.get('commentAccount', '');
+    const q = view.account && view.account !== account ? '' : (view.q || '').trim();
+    const args = [account];
+    let where = "d.account_uid=? AND d.state='sent'";
+    if (q) {
+      where += " AND (instr(d.bvid,?)>0 OR instr(COALESCE(json_extract(d.data,'$.text'),''),?)>0 OR instr(COALESCE(json_extract(r.data,'$.evidence.title'),''),?)>0)";
+      args.push(q, q, q);
+    }
+    const from = ' FROM comment_drafts d LEFT JOIN runs r ON r.id=d.id WHERE ' + where;
+    const total = Number(this.db.prepare('SELECT COUNT(*) n' + from).get(...args).n), pageSize = 10;
+    const requested = view.account && view.account !== account ? 0 : view.offset || 0;
+    const offset = Math.min(requested, Math.max(0, Math.floor((total - 1) / pageSize) * pageSize));
+    const rows = this.db.prepare("SELECT d.data,json_extract(r.data,'$.evidence.title') title" + from + ' ORDER BY d.rowid DESC LIMIT ? OFFSET ?')
+      .all(...args, pageSize, offset).map(row => ({ ...exposed(JSON.parse(row.data)), title: row.title || '' }));
+    return { account, q, rows, total, offset, pageSize };
+  }
+  status(view = {}) {
     const accountUid = this.c.social.account || this.store.get('commentAccount', '');
     return { mode: this.store.config().commentMode, paused: this.paused, busy: !!this.busy, accountUid,
-      budget: this.budget(accountUid), notice: this.notice || '', error: this.error || null,
-      recent: this.db.prepare("SELECT data FROM comment_drafts WHERE state IN ('sent','unknown','failed','sending') ORDER BY rowid DESC LIMIT 10")
-        .all().map(row => exposed(JSON.parse(row.data))) };
+      budget: this.budget(accountUid), notice: this.notice || '', error: this.error || null, recoveryBvid: this.recoveryBvid || '',
+      privacyMode: this.store.config().commentPrivacyMode, privacyReviewRequired: this.requiresPrivacyReview(), published: this.published(view),
+      recent: this.db.prepare("SELECT data FROM comment_drafts WHERE account_uid=? AND state IN ('sent','unknown','failed','sending') ORDER BY rowid DESC LIMIT 10")
+        .all(accountUid).map(row => exposed(JSON.parse(row.data))) };
   }
   context(account) { return this.db.prepare("SELECT data FROM comment_drafts WHERE account_uid=? AND state IN ('sent','unknown','failed') ORDER BY rowid DESC LIMIT 3")
     .all(account).map(row => { const d = JSON.parse(row.data); return { bvid: d.bvid, state: d.state, text: d.text, receipt: d.receipt || '',
@@ -92,12 +117,12 @@ export class Comments {
     parsePreview(JSON.stringify(run.preview), run, run.evidence, source);
     uidOf(run.accountUid);
     const config = this.store.config(), mentions = this.selected(uids ?? run.preview.mention_uids ?? [], config);
-    assert(run.kind !== 'interaction' || !mentions.length, 'INTERACTION_MENTION', '关键词互动绑定原留言，不附加额外提及对象。');
+    assert(!run.interactionTarget || !mentions.length, 'INTERACTION_MENTION', '评论互动绑定原留言，不附加额外提及对象。');
     const text = run.preview.comment + (mentions.length ? '\n' + mentions.map(t => '@' + t.name + ' ').join('') : '');
     this.c.privacy.check(text, { mentions });
     assert(text.length <= config.commentMaxChars, 'COMMENT_LENGTH', '加上提及后的最终评论超过字数上限，请减少对象或重新生成。');
-    const d = { id, kind: run.kind, accountUid: run.accountUid, bvid: bvidOf(run.bvid), roundKey: run.roundId || 'manual:' + id,
-      ...(run.kind === 'interaction' ? { target: run.interactionTarget } : {}),
+    const d = { id, kind: run.kind, accountUid: run.accountUid, bvid: bvidOf(run.bvid), roundKey: run.interactionRoundKey || run.roundId || 'manual:' + id,
+      ...(run.interactionTarget ? { target: run.interactionTarget } : {}),
       text, mentions, policy: policy(source), state: 'draft', createdAt: Date.parse(run.createdAt),
       autoEligible: internal && source.commentMode === 'auto', reason: '最终评论预览已准备，尚未发送。' };
     d.revision = revisionOf(d);
@@ -109,7 +134,7 @@ export class Comments {
     assert(d?.state === 'draft' && ['video', 'interaction'].includes(run?.kind) && run.state === 'preview', 'COMMENT_DRAFT', '草稿不在可发送状态。', 409);
     this.c.learning.checkOutput(d.text, d.accountUid);
     this.c.privacy.check(d.text, { mentions: d.mentions });
-    if (run.kind === 'interaction') {
+    if (run.interactionTarget) {
       assert(JSON.stringify(d.target) === JSON.stringify(run.interactionTarget), 'COMMENT_TARGET', '互动对象与原留言不匹配。');
       this.c.interactions.assertAllowed(d);
     }
@@ -119,7 +144,7 @@ export class Comments {
     assert(d.text.length <= config.commentMaxChars && revisionOf(d) === d.revision,
       'COMMENT_STALE', '最终文案或版本不匹配，请更新预览。');
     if (!quota) return;
-    this.c.privacy.gate('comment:' + d.id, d.revision, auto, this.c.privacy.context().sharedPrivateContext);
+    this.c.privacy.gate('comment:' + d.id, d.revision, auto, this.requiresPrivacyReview());
     assert(!this.paused && config.commentMode !== 'preview', 'COMMENTS_DISABLED', '评论发送已暂停或仍为预览模式。', 409);
     if (auto) assert(config.commentMode === 'auto' && d.autoEligible && d.createdAt >= this.store.get('commentAutoSince', Infinity) &&
       !this.c.scheduler.paused && inActivity(this.c.now(), config), 'COMMENT_AUTO', '当前草稿不符合自动发送条件。', 409);
@@ -149,12 +174,15 @@ export class Comments {
       return this.save({ ...d, state: 'sending', attemptedAt: now, reason: '已占用发送及提及次数，等待平台回执。' }, false);
     });
   }
-  background(operation) {
+  background(operation, sourceId) {
     this.c.assertNotInstalling();
     assert(!this.store.active() && !this.c.scheduler.busy && !this.c.scheduler.starting, 'RUN_BUSY', '请等当前视频或私信任务结束。', 409);
-    this.busy = true; this.c.metadataBusy = true; this.c.metadataBusyMessage = '正在处理评论发布或核对，请稍候。'; this.error = null;
+    this.busy = true; this.c.metadataBusy = true; this.c.metadataBusyMessage = '正在处理评论发布或核对，请稍候。'; this.error = null; this.recoveryBvid = '';
     this.job = Promise.resolve().then(() => { if (!this.c.closed) return operation(); }).catch(error => {
-      if (!this.c.closed) { this.error = errorView(error); this.notice = this.error.message; }
+      if (!this.c.closed) {
+        this.error = errorView(error); this.notice = this.error.message;
+        this.recoveryBvid = error.code === 'COMMENT_STALE' ? this.get(sourceId)?.bvid || '' : '';
+      }
     }).finally(() => { this.busy = false; this.c.metadataBusy = false; this.c.metadataBusyMessage = ''; });
     return { message: '评论操作已提交，状态会自动更新。' };
   }
@@ -202,14 +230,14 @@ export class Comments {
   }
   publish(id, revision, input = {}) {
     return this.background(() => {
-      this.c.privacy.review('comment:' + id, revision, input, this.c.privacy.context().sharedPrivateContext);
+      this.c.privacy.review('comment:' + id, revision, input, this.requiresPrivacyReview());
       return this.send(id, revision);
-    });
+    }, id);
   }
   check(id) { return this.background(async () => {
     const d = this.get(requestIdOf(id)); this.assertDraft(d, false, false); await this.preflight(d);
     if (!this.c.closed) this.notice = '登录账号、视频与提及对象读取检查通过，未发送。实际评论和提及效果仍须在B站确认。';
-  }); }
+  }, id); }
   verify(id) { return this.background(async () => {
     const d = this.get(requestIdOf(id));
     assert(d && !d.contentCleared && ['unknown', 'sent'].includes(d.state), 'COMMENT_VERIFY', '没有可核对的本地文案；删除记录后可到B站核对，仍不重发。');
@@ -234,6 +262,13 @@ export class Comments {
   }); }
   configured(before, after) {
     if (before.commentMode !== 'auto' && after.commentMode === 'auto') this.store.set('commentAutoSince', this.c.now());
+    if (before.commentPrivacyMode !== after.commentPrivacyMode) {
+      this.store.set('commentRetryAfter', 0); this.error = null;
+      this.notice = after.commentPrivacyMode === 'content' ? '已改为按本条评论内容检查；自动模式将继续处理符合条件的待发草稿。' : '已启用逐条隐私审核；同一对话含私信历史时，需要人工核对公开评论。';
+      for (const row of this.db.prepare("SELECT data FROM comment_drafts WHERE state='draft' AND json_extract(data,'$.reason') LIKE '同一对话含私密历史，已阻止%'").all()) {
+        const d = JSON.parse(row.data); this.save({ ...d, reason: this.notice }, false);
+      }
+    }
     this.kick();
   }
   pause() { this.store.set('commentsPaused', true); return { message: '评论发送已暂停，已发出的请求无法撤回。' }; }

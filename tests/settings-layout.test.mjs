@@ -32,7 +32,7 @@ test('private UI navigates people before messages, separates settings and preser
   assert.ok(ui.calls.every(c => c.action === 'status')); assert.equal(f.counters.read, 0); assert.equal(f.counters.prompt, 0);
 });
 
-test('interaction UI shows limits outside collapsed settings and filters automatic top/sub outcomes in place', async t => {
+test('interaction UI keeps limits out of the feed, exposes them in reply settings and filters automatic outcomes in place', async t => {
   const f = fixture(t); await f.bind(); f.controller.configure({ commentMode: 'auto' }); f.store.set('commentAccount', '123');
   for (const level of ['top', 'sub']) {
     const id = 'interaction-layout-' + level;
@@ -41,20 +41,31 @@ test('interaction UI shows limits outside collapsed settings and filters automat
       commentPublication: { state: 'sent', text: '测试自动回复', reason: '模拟平台已接收' } });
   }
   const ui = await settingsHarness(f.controller); t.after(ui.close);
-  let tree = ui.render(); ui.button(tree, '互动').props.onClick(); tree = ui.render();
-  const panel = flatten(tree).find(n => n?.props?.id === 'bili-tab-interaction');
-  const limits = flatten(panel).find(n => n?.props?.className === 'interaction-policy'); assert.ok(limits);
-  assert.equal(limits.type, 'div'); assert.match(nodeText(limits), /楼中楼上限/);
-  assert.equal(flatten(tree).find(n => n?.props?.id === 'bili-interaction-activity').props.hidden, false);
-  assert.equal(flatten(tree).find(n => n?.props?.id === 'bili-interaction-settings').props.hidden, true);
-  assert.equal(flatten(panel).filter(n => n?.props?.className === 'interaction-result').length, 2);
+  let tree = ui.render();
+  // Interaction outcomes now live on the record tab; the interaction tab keeps
+  // only published comments and the reply settings.
+  ui.button(tree, '记录').props.onClick(); tree = ui.render();
+  const history = flatten(tree).find(n => n?.props?.id === 'bili-history-interactions');
+  assert.ok(history, 'record tab must host the interaction record section');
+  assert.equal(history.props.open, true);
+  assert.equal(flatten(tree).filter(n => n?.props?.className === 'interaction-result').length, 2);
   const nav = flatten(tree).find(n => n?.props?.['aria-label'] === '互动记录类型');
   await ui.button(nav, '楼中楼 1').props.onClick(); await ui.flush(); tree = ui.render();
   const results = flatten(tree).filter(n => n?.props?.className === 'interaction-result');
   assert.equal(results.length, 1); assert.match(nodeText(results[0]), /楼中楼/); assert.match(nodeText(results[0]), /测试自动回复/);
   assert.match(nodeText(results[0]), /模拟平台已接收/);
+  // The interaction tab no longer offers an in-place record feed.
+  ui.button(tree, '互动').props.onClick(); tree = ui.render();
+  const panel = flatten(tree).find(n => n?.props?.id === 'bili-tab-interaction');
+  assert.ok(!flatten(panel).some(n => n?.props?.className === 'interaction-result'));
+  assert.ok(!flatten(panel).some(n => n?.props?.className === 'interaction-policy'));
+  assert.equal(flatten(tree).find(n => n?.props?.id === 'bili-published-comments').props.hidden, false);
   const sections = flatten(tree).find(n => n?.props?.['aria-label'] === '评论互动分区'); ui.button(sections, '互动设置').props.onClick(); tree = ui.render();
   assert.equal(flatten(tree).find(n => n?.props?.id === 'bili-interaction-settings').props.hidden, false);
+  ui.button(tree, '接话规则').props.onClick(); tree = ui.render();
+  const replySettings = flatten(tree).find(n => n?.props?.id === 'bili-interaction-settings-replies');
+  assert.equal(replySettings.props.hidden, false);
+  assert.match(nodeText(replySettings), /普通留言上限（每次，0关闭）/); assert.match(nodeText(replySettings), /楼中楼上限（每次，0关闭）/);
   assert.ok(ui.calls.every(c => c.action === 'status')); assert.equal(f.counters.prompt, 0); assert.equal(f.counters.read, 0);
 });
 

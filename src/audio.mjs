@@ -24,7 +24,8 @@ export async function transcribeFallback(controller, run, evidence, config) {
       Number.isFinite(result.processedSeconds) && result.processedSeconds > 0 && result.processedSeconds <= job.seconds + 0.1 &&
       Array.isArray(result.processedRanges) && result.processedRanges.length === 1 &&
       result.processedRanges[0]?.from === 0 && result.processedRanges[0]?.to === result.processedSeconds &&
-      ['partial', 'complete'].includes(result.coverage), 'INVALID_EVIDENCE', '转写结果的来源、账号、分P或覆盖范围无效。');
+      ['partial', 'complete', 'none'].includes(result.coverage) &&
+      (result.coverage !== 'none' || (!result.text.trim() && result.segments.length === 0)), 'INVALID_EVIDENCE', '转写结果的来源、账号、分P或覆盖范围无效。');
     let last = 0;
     for (const segment of result.segments) {
       assert(typeof segment.text === 'string' && Number.isFinite(segment.from) && Number.isFinite(segment.to) &&

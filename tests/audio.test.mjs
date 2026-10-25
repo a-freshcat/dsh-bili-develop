@@ -86,6 +86,14 @@ test('timeout preserves reserved quota through database reopen', async t => {
   assert.equal(f.counters.prompt, 0);
 });
 
+test('empty speech has no text coverage and skips the model; nonempty evidence cannot claim no coverage', async t => {
+  const f = await setup(t, { result: { text: '', segments: [], coverage: 'none', skipReason: '音轨没有可靠讲话；未读取画面文字。' } });
+  const run = await f.run('audio-no-text-coverage'); assert.equal(run.state, 'skipped');
+  assert.equal(run.evidence.coverage, 'none'); assert.equal(f.counters.prompt, 0);
+  const g = await setup(t, { result: { coverage: 'none' } });
+  assert.equal((await g.run('invalid-no-coverage')).error.code, 'INVALID_EVIDENCE'); assert.equal(g.counters.prompt, 0);
+});
+
 test('mismatched account and out-of-range ASR segments never enter the original conversation', async t => {
   const f = await setup(t, { result: { accountUid: 'different-account' } });
   assert.equal((await f.run('asr-wrong-account')).error.code, 'INVALID_EVIDENCE');

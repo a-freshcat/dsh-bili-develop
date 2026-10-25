@@ -25,6 +25,7 @@ _audio = None
 _community = None
 _private = None
 _publishing = None
+_vision = None
 
 
 def publishing_module():
@@ -61,6 +62,15 @@ def community_module():
         _community = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(_community)
     return _community
+
+
+def vision_module():
+    global _vision
+    if _vision is None:
+        spec = importlib.util.spec_from_file_location("bili_vision", Path(__file__).with_name("vision.py"))
+        _vision = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(_vision)
+    return _vision
 
 
 class ReadError(Exception):
@@ -260,6 +270,23 @@ async def dispatch(method, params):
         return audio_module().check_environment(params.get("model_path", ""))
     if method == "audio_cleanup":
         return audio_module().cleanup_temporary(DATA)
+    if method == "vision_check":
+        return vision_module().check_environment()
+    if method == "vision_cleanup":
+        return vision_module().cleanup_temporary(DATA)
+    if method == "sample_frames":
+        bvid = params.get("bvid", "")
+        if not isinstance(bvid, str) or not re.fullmatch(r"BV[0-9A-Za-z]{10}", bvid):
+            raise ReadError("VISION_INPUT", "画面视频标识无效。")
+        cred = credential()
+        if not cred.sessdata:
+            raise ReadError("NOT_LOGGED_IN", "请先检查登录。")
+        obj = video.Video(bvid=bvid, credential=cred)
+        module = vision_module()
+        try:
+            return await module.run(obj, params, DATA, str(cred.dedeuserid or ""))
+        except module.VisionError as error:
+            raise ReadError(error.code, str(error)) from None
     if method == "read_cover":
         bvid = params.get("bvid", "")
         if not isinstance(bvid, str) or not re.fullmatch(r"BV[0-9A-Za-z]{10}", bvid):
@@ -288,7 +315,7 @@ async def dispatch(method, params):
             return await weekly.dispatch(method, params, credential(), DATA)
         except weekly.PublishError as error:
             raise ReadError(error.code, str(error)) from None
-    if method in ("comment_probe", "comment_publish", "comment_verify", "comment_feedback", "interaction_scan", "owner_mentions", "comment_reply_probe", "comment_reply_publish", "comment_reply_verify"):
+    if method in ("comment_probe", "comment_publish", "comment_verify", "comment_feedback", "interaction_scan", "owner_mentions", "mentioned_video_context", "comment_reply_probe", "comment_reply_publish", "comment_reply_verify"):
         module = publishing_module()
         try:
             return await module.dispatch(method, params, credential())

@@ -1,7 +1,7 @@
 import { bvidOf, configOf, requestIdOf, previewPrompt, parsePreview, resultForRequest } from './decision.mjs';
 import { PluginError, assert, errorView } from './errors.mjs';
 import { writeNote } from './notebook.mjs';
-import { ownerContext, uidOf } from './owner.mjs';
+import { ownerContext, ownerUid, uidOf } from './owner.mjs';
 import { privatePrompt } from './contacts.mjs';
 import { Social } from './social.mjs';
 import { Comments } from './comments.mjs';
@@ -18,8 +18,9 @@ import { Privacy } from './privacy.mjs';
 import { Feedback } from './feedback.mjs';
 import { Relationships } from './relationships.mjs';
 import { transcribeFallback } from './audio.mjs';
+import { sampleFrames, frameParts } from './vision.mjs';
 import { coverUrl } from './media.mjs';
-import { validateCommentEvidence } from './community.mjs';
+import { validateCommentEvidence, validateDiscussion } from './community.mjs';
 import { HISTORY_PAGE_SIZE } from './store.mjs';
 
 const summarizeRun = run => {
@@ -30,7 +31,10 @@ const summarizeRun = run => {
     language: evidence.language, readAt: evidence.readAt, totalSegments: evidence.totalSegments,
     processedRanges: evidence.processedRanges, processor: evidence.processor,
     classification: evidence.classification, commentSample: evidence.commentSample, comments: evidence.comments,
+    discussion: evidence.discussion,
     readSegments: evidence.segments?.length || 0,
+    totalFrames: evidence.totalFrames, frameTimes: evidence.frames?.map(f => f.at),
+    // Frame bytes never leave the host: only counts and timestamps are exposed.
   } } : {}) };
 };
 
@@ -58,7 +62,7 @@ export class Controller {
     this.feedback = new Feedback(this);
     this.relationships = new Relationships(this);
   }
-  async status({ offset = 0, contactsOffset = 0, contactQuery = '', privateView = {}, interactionView = {}, learningOffset = 0, learningView = {}, weeklyOffset = 0, filters = {} } = {}) {
+  async status({ offset = 0, contactsOffset = 0, contactQuery = '', privateView = {}, interactionView = {}, publishedView = {}, learningOffset = 0, learningView = {}, weeklyOffset = 0, filters = {} } = {}) {
     assert(Number.isInteger(offset) && offset >= 0 && offset <= 1000000, 'INVALID_PAGE', '分页参数无效。');
     return {
       version, mode: this.store.config().commentMode === 'preview' ? 'preview_only' : 'controlled_comments',
@@ -77,9 +81,10 @@ export class Controller {
       browsing: this.scheduler.status(),
       audio: { budget: this.store.audioBudget(this.store.config(), this.now()), environment: this.audioEnvironment || { state: 'unchecked' },
         preparedModel: this.preparedModel || null },
+      frames: { budget: this.store.frameBudget(this.store.config(), this.now()), environment: this.framesEnvironment || { state: 'unchecked' } },
       covers: this.coverState || { state: 'idle' },
       social: this.social.status({ contactsOffset, contactQuery, privateView }),
-      comments: this.comments.status(),
+      comments: this.comments.status(publishedView),
       interactions: this.interactions.status(interactionView),
       ownerMentions: this.ownerMentions.status(),
       selfReplies: this.selfReplies.status(),
@@ -141,28 +146,54 @@ export class Controller {
   }
   async execute(run) {
     if (this.closed) return;
-    const config = { ...this.store.config(), ...(run.kind === 'interaction' ? { commentMentionsEnabled: false } : {}) };
+    const mentionedVideo = run.kind === 'video' && run.source === 'owner_mention';
+    const config = { ...this.store.config(), ...(run.interactionTarget ? { commentMentionsEnabled: false } : {}) };
     let evidence = run.kind === 'interaction' ? run.evidence : undefined;
     if (run.kind === 'video') {
+      if (mentionedVideo) this.interactions.assertAllowed({ id: run.id, target: run.interactionTarget, accountUid: run.accountUid, bvid: run.bvid });
       evidence = await this.reader().call('read_video', { bvid: run.bvid, max_chars: config.maxContentChars });
       if (this.closed) return;
       assert(evidence && evidence.bvid === run.bvid && typeof evidence.text === 'string',
         'INVALID_EVIDENCE', '读取结果与当前视频不匹配。');
-      if (run.roundId) assert(String(evidence.accountUid) === run.accountUid, 'ACCOUNT_CHANGED', '视频读取期间账号已变化，未投递评价模型。');
+      if (run.roundId || mentionedVideo) assert(String(evidence.accountUid) === run.accountUid, 'ACCOUNT_CHANGED', '视频读取期间账号已变化，未投递评价模型。');
       evidence.cover = coverUrl(evidence.cover);
       validateCommentEvidence(evidence, run, config);
       this.store.update(run.id, { evidence, accountUid: String(evidence.accountUid || '') });
       if (/^[1-9]\d{0,19}$/.test(String(evidence.accountUid || ''))) this.store.set('learningAccount', String(evidence.accountUid));
       this.store.markSeen(String(evidence.accountUid || ''), run.bvid);
+      if (mentionedVideo) {
+        const context = await this.reader().call('mentioned_video_context', { bvid: run.bvid, expected_account: run.accountUid,
+          target: run.interactionTarget, owner_mention_uid: ownerUid(config) });
+        if (this.closed) return;
+        assert(context?.accountUid === run.accountUid && context.bvid === run.bvid && JSON.stringify(context.target) === JSON.stringify(run.interactionTarget),
+          'INTERACTION_READ', '视频关联讨论与原@留言不匹配。');
+        validateDiscussion(context.discussion, run);
+        this.interactions.assertAllowed({ id: run.id, target: run.interactionTarget, accountUid: run.accountUid, bvid: run.bvid });
+        // Pausing comments blocks sending, not drafting: the draft is still useful
+        // to review after resuming, and the send path re-checks pause itself.
+        evidence = { ...evidence, discussion: context.discussion };
+      }
       evidence = await transcribeFallback(this, run, evidence, config);
       if (this.closed) return;
+      // Vision replaces the transcript as primary material when enabled; a
+      // stream failure falls back to the text path instead of failing the run.
+      if (!mentionedVideo && config.visionEnabled) {
+        try {
+          const visual = await sampleFrames(this, run, evidence, config);
+          if (this.closed) return;
+          if (visual) evidence = { ...evidence, ...visual, text: '' , segments: [] };
+        } catch (error) {
+          if (this.closed) return;
+          this.store.update(run.id, { visionNotice: errorView(error).message });
+        }
+      }
       this.store.update(run.id, { evidence });
-      if (evidence.skipReason || !evidence.text.trim()) {
+      if (!mentionedVideo && (evidence.source !== 'frames') && (evidence.skipReason || !evidence.text.trim())) {
         this.finish(run.id, { state: 'skipped', skipReason: evidence.skipReason || '没有可读字幕。' });
         await this.interactions.inspect(this.store.run(run.id)); return;
       }
     }
-    let text = run.kind === 'dm_proactive' ? this.relationships.prompt(run, config) : run.kind === 'browse_choice' ? this.discovery.prompt(run, config) : run.kind === 'weekly' ? this.weekly.prompt(run, config) : run.kind === 'learning_review' ? this.learning.reviewPrompt(run, config) : run.kind === 'interaction' ? this.interactions.prompt(run, config) : run.kind === 'dm' ? privatePrompt(run, config) : run.kind === 'probe' ?
+    let text = run.kind === 'dm_proactive' ? this.relationships.prompt(run, config) : run.kind === 'browse_choice' ? this.discovery.prompt(run, config) : run.kind === 'weekly' ? this.weekly.prompt(run, config) : run.kind === 'learning_review' ? this.learning.reviewPrompt(run, config) : run.interactionTarget ? this.interactions.prompt({ ...run, evidence }, config) : run.kind === 'dm' ? privatePrompt(run, config) : run.kind === 'probe' ?
       ownerContext(config) + '\n这是专用对话的只读接入检查。请只回复：BILI_PROBE_OK ' + run.id :
       previewPrompt({ ...run, publicationContext: this.comments.context(String(evidence.accountUid || '')) }, evidence, config);
     if (['video', 'interaction', 'dm', 'dm_proactive'].includes(run.kind)) {
@@ -173,7 +204,10 @@ export class Controller {
     // Persist before admission. Restart reconciliation never blindly resends.
     text = this.privacy.prepare(run, text);
     run = this.store.update(run.id, { state: 'awaiting_model', evidence, configSnapshot: config, promptText: text });
-    const agent = await this.host.prompt(run, text);
+    // Frames are admitted with the prompt only for a visual run; every other
+    // path keeps the text-only content shape.
+    const images = evidence?.source === 'frames' && Array.isArray(evidence.frames) ? frameParts(evidence.frames) : [];
+    const agent = await this.host.prompt(run, text, images);
     let timer;
     try {
       const completed = await Promise.race([
@@ -241,7 +275,7 @@ export class Controller {
       try { this.comments.stage(id, preview.mention_uids, true); }
       catch (error) { this.store.update(id, { commentNotice: errorView(error).message }); }
     }
-    if (run.kind === 'video') await this.interactions.inspect(this.store.run(id));
+    if (run.kind === 'video' && !run.interactionTarget) await this.interactions.inspect(this.store.run(id));
     return { run: summarizeRun(this.store.run(id)) };
   }
   finish(id, result) {
@@ -618,6 +652,17 @@ export class Controller {
         this.audioEnvironment = { state: result.ready ? 'ready' : result.dependencies ? 'dependencies_ready' : 'unavailable', ...result };
         return result;
       }
+      case 'vision_check': {
+        this.assertNotInstalling();
+        const result = await this.reader().call('vision_check', {}, 30000);
+        assert(typeof result?.dependencies === 'boolean', 'VISION_NOT_READY', '画面环境检查没有返回有效结果，请重试。');
+        this.framesEnvironment = { state: result.ready ? 'ready' : 'unavailable', ...result };
+        return result;
+      }
+      case 'vision_cleanup':
+        this.assertNotInstalling();
+        assert(!this.store.active(), 'RUN_BUSY', '请等待当前任务结束后清理画面缓存。', 409);
+        return this.reader().call('vision_cleanup', {}, 10000);
       default: throw new PluginError('UNKNOWN_ACTION', '当前版本不支持这个操作。', 404);
     }
   }

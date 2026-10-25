@@ -18,7 +18,7 @@ function client(fetch) {
   return plugin;
 }
 
-test('owner mention controls stay collapsed and off, save independently and expose notification check', async t => {
+test('owner mention controls are on the reply settings page and save independently', async t => {
   const f = fixture(t); await f.bind(); f.controller.configure({ ownerAccountEnabled: true, ownerAccountUid: '789' });
   let plugin, settings, stateIndex = 0, refIndex = 0; const values = [], refs = [], effects = [], calls = [];
   const React = { createElement: (type, props, ...children) => ({ type, props: props || {}, children: children.flat(Infinity) }),
@@ -33,15 +33,47 @@ test('owner mention controls stay collapsed and off, save independently and expo
   const render = () => { stateIndex = 0; refIndex = 0; effects.length = 0; return panel.type(panel.props); };
   const button = (tree, text) => flat(tree).find(n => n?.type === 'button' && n.children.includes(text));
   render(); const cleanup = effects[0](); await new Promise(r => setImmediate(r)); let tree = render();
-  const section = flat(tree).find(n => n?.type === 'details' && n.children.some(c => c?.type === 'summary' && c.children.includes('使用者评论区@回复')));
-  assert.ok(section); assert.ok(!section.props.open);
-  const toggle = flat(section).find(n => n?.type === 'input' && n.props.type === 'checkbox');
+  button(tree, '互动').props.onClick(); tree = render(); button(tree, '互动设置').props.onClick(); tree = render();
+  button(tree, '接话规则').props.onClick(); tree = render();
+  const section = flat(tree).find(n => n?.props?.id === 'bili-interaction-settings-replies');
+  assert.ok(section); assert.equal(section.props.hidden, false);
+  const toggleLabel = flat(section).find(n => n?.type === 'label' && flat(n).includes('使用者在视频评论区@大肥鱼时回应（默认关闭）'));
+  const toggle = flat(toggleLabel).find(n => n?.type === 'input');
   assert.equal(toggle.props.checked, false); assert.equal(button(tree, '检查使用者@通知').props.disabled, true);
   toggle.props.onChange({ target: { checked: true } }); tree = render();
-  await button(tree, '保存@回复设置').props.onClick(); await new Promise(r => setImmediate(r)); tree = render();
+  await button(tree, '保存接话规则').props.onClick(); await new Promise(r => setImmediate(r)); tree = render();
   assert.equal(f.store.config().ownerCommentReplyEnabled, true); assert.equal(f.store.config().commentMode, 'preview');
   assert.equal(button(tree, '检查使用者@通知').props.disabled, false);
   assert.ok(calls.every(c => ['status', 'configure'].includes(c.action))); assert.equal(f.counters.prompt, 0); assert.equal(f.counters.read, 0); cleanup();
+});
+
+test('owner mention entry is visible on the interaction page before opening any settings subtab', async t => {
+  const f = fixture(t); await f.bind();
+  let plugin, settings, stateIndex = 0, refIndex = 0; const values = [], refs = [], effects = [], calls = [];
+  const React = { createElement: (type, props, ...children) => ({ type, props: props || {}, children: children.flat(Infinity) }),
+    useState(initial) { const i = stateIndex++; if (!(i in values)) values[i] = initial; return [values[i], v => { values[i] = typeof v === 'function' ? v(values[i]) : v; }]; },
+    useRef(initial) { const i = refIndex++; return refs[i] ||= { current: initial }; }, useEffect(fn) { effects.push(fn); } };
+  const scope = { window: { __ModuleLoader__: { load: m => { plugin = m.factory(() => React); } } },
+    fetch: async (_url, options) => { const input = JSON.parse(options.body); calls.push(input); return Response.json({ ok: true, value: await f.controller.dispatch(input) }); },
+    setTimeout, clearTimeout, setInterval: () => 1, clearInterval() {}, AbortController, Response, crypto: { randomUUID: () => 'owner-mention-banner' } };
+  scope.globalThis = scope; runInNewContext(readFileSync('client.js', 'utf8'), scope);
+  plugin.apply({ get: n => n === 'slots' ? { inject: (_n, cb) => cb(), register: (_o, fn) => { settings = fn; } } : { openSession() {} } });
+  const panel = settings({}), flat = n => n && typeof n === 'object' ? [n, ...n.children.flatMap(flat)] : [n];
+  const text = n => flat(n).filter(x => typeof x === 'string').join('');
+  const button = (tree, label) => flat(tree).find(n => n?.type === 'button' && text(n) === label);
+  const render = () => { stateIndex = 0; refIndex = 0; effects.length = 0; return panel.type(panel.props); };
+  render(); const cleanup = effects[0](); t.after(cleanup); await new Promise(r => setImmediate(r));
+  let tree = render(); button(tree, '互动').props.onClick(); tree = render();
+  const banner = flat(tree).find(n => n?.props?.id === 'bili-owner-mention-banner');
+  assert.ok(banner, 'the @ entry must be reachable without opening 互动设置');
+  assert.match(text(banner), /当前状态：未开启/);
+  assert.equal(button(tree, '检查使用者@通知').props.disabled, true, 'a disabled switch explains why the check is unavailable');
+  await button(tree, '开启使用者@回复').props.onClick(); await new Promise(r => setImmediate(r)); tree = render();
+  assert.equal(f.store.config().ownerCommentReplyEnabled, true);
+  assert.match(text(flat(tree).find(n => n?.props?.id === 'bili-owner-mention-banner')), /当前状态：已开启/);
+  assert.equal(button(tree, '开启使用者@回复'), undefined, 'the one-click enable button disappears once enabled');
+  assert.equal(f.counters.prompt, 0); assert.equal(f.counters.read, 0);
+  assert.ok(calls.every(c => ['status', 'configure'].includes(c.action)));
 });
 
 test('dialogue-learning UI distinguishes private conversations from criticism and locally backfills without a model or platform call', async t => {
@@ -307,7 +339,7 @@ test('unknown weekly UI only offers readonly verification and never resubmits on
   assert.equal(nodes.find(n => n?.type === 'button' && n.children.includes('确认发布这条动态')), undefined);
 });
 
-test('all three comment modes are directly visible and survive save and reopening the settings panel', async t => {
+test('comment and privacy modes are directly visible and survive scoped saves and reopening', async t => {
   const f = fixture(t); await f.bind();
   let plugin, settings, stateIndex = 0, refIndex = 0;
   const values = [], refs = [], effects = [], calls = [];
@@ -327,29 +359,37 @@ test('all three comment modes are directly visible and survive save and reopenin
   const text = n => flat(n).filter(x => typeof x === 'string').join('');
   const button = (tree, label) => flat(tree).find(n => n?.type === 'button' && text(n) === label);
   const radios = tree => flat(tree).filter(n => n?.props?.role === 'radio');
+  const modeRadios = tree => radios(tree).filter(n => ['preview', 'manual', 'auto'].includes(n.props.value));
+  const privacyRadios = tree => radios(tree).filter(n => ['content', 'strict'].includes(n.props.value));
   const flush = () => new Promise(resolve => setImmediate(resolve));
   const reopen = async () => {
     values.length = 0; refs.length = 0; render(); const cleanup = effects[0](); await flush();
-    let tree = render(); button(tree, '互动').props.onClick(); tree = render(); return { tree, cleanup };
+    let tree = render(); button(tree, '互动').props.onClick(); tree = render(); button(tree, '互动设置').props.onClick(); tree = render(); return { tree, cleanup };
   };
   let current = await reopen();
-  assert.equal(radios(current.tree).length, 3, 'three choices must be readable without opening a native popup');
-  assert.deepEqual(radios(current.tree).map(n => n.props.value), ['preview', 'manual', 'auto']);
-  assert.equal(radios(current.tree).filter(n => n.props['aria-checked']).length, 1);
-  assert.equal(radios(current.tree).find(n => n.props['aria-checked']).props.value, 'preview');
+  assert.equal(modeRadios(current.tree).length, 3, 'three comment choices are directly visible');
+  assert.equal(privacyRadios(current.tree).length, 2, 'both privacy choices are directly visible');
+  assert.deepEqual(modeRadios(current.tree).map(n => n.props.value), ['preview', 'manual', 'auto']);
+  assert.equal(modeRadios(current.tree).filter(n => n.props['aria-checked']).length, 1);
+  assert.equal(modeRadios(current.tree).find(n => n.props['aria-checked']).props.value, 'preview');
+  assert.equal(privacyRadios(current.tree).find(n => n.props['aria-checked']).props.value, 'strict');
   let focused = -1, prevented = false;
-  radios(current.tree)[0].props.onKeyDown({ key: 'ArrowRight', preventDefault() { prevented = true; },
+  modeRadios(current.tree)[0].props.onKeyDown({ key: 'ArrowRight', preventDefault() { prevented = true; },
     currentTarget: { parentElement: { querySelectorAll: () => [0, 1, 2].map(i => ({ focus() { focused = i; } })) } } });
   current.tree = render(); assert.equal(focused, 1); assert.equal(prevented, true);
-  assert.equal(radios(current.tree).find(n => n.props['aria-checked']).props.value, 'manual');
+  assert.equal(modeRadios(current.tree).find(n => n.props['aria-checked']).props.value, 'manual');
   for (const mode of ['manual', 'auto', 'preview']) {
-    radios(current.tree).find(n => n.props.value === mode).props.onClick(); current.tree = render();
-    assert.equal(radios(current.tree).find(n => n.props['aria-checked']).props.value, mode);
-    await button(current.tree, '保存评论设置').props.onClick(); await flush();
+    modeRadios(current.tree).find(n => n.props.value === mode).props.onClick(); current.tree = render();
+    assert.equal(modeRadios(current.tree).find(n => n.props['aria-checked']).props.value, mode);
+    await button(current.tree, '保存发送与隐私').props.onClick(); await flush();
     assert.equal(f.store.config().commentMode, mode, 'the real controller writes the chosen mode to SQLite');
     current.cleanup(); current = await reopen();
-    assert.equal(radios(current.tree).find(n => n.props['aria-checked']).props.value, mode, 'the saved mode is restored on a new panel mount');
+    assert.equal(modeRadios(current.tree).find(n => n.props['aria-checked']).props.value, mode, 'the saved mode is restored on a new panel mount');
   }
+  privacyRadios(current.tree).find(n => n.props.value === 'content').props.onClick(); current.tree = render();
+  assert.equal(f.store.config().commentPrivacyMode, 'strict', 'privacy choice requires explicit saving');
+  await button(current.tree, '保存发送与隐私').props.onClick(); await flush();
+  assert.equal(f.store.config().commentPrivacyMode, 'content');
   assert.equal(f.counters.read, 0); assert.equal(f.counters.prompt, 0);
   assert.ok(calls.every(c => ['status', 'configure'].includes(c.action)), 'changing modes alone must not send or evaluate anything');
   values[0] = { ...await f.controller.status(), active: { id: 'busy-for-ui-only' } }; current.tree = render();
@@ -421,7 +461,9 @@ test('public comment UI requires refreshed final text and a second explicit conf
   const status = () => ({ config, binding: { phase: 'active' }, workspaces: [], active: null, install: { state: 'ready' }, total: 1,
     runs: [{ id: d.id, bvid: d.bvid, kind: 'video', state: 'preview', createdAt: new Date().toISOString(),
       preview: { should_comment: true, comment: '有依据的评论。', summary: '摘要', evaluation: '评价', reason: '理由' }, commentPublication: d }],
-    comments: { mode: config.commentMode, paused: false, budget: { attempts: 0, limit: 5, mentionAttempts: 0, mentionLimit: 5 }, recent: [] } });
+    privacy: { sharedPrivateContext: true, contextHash: 'synthetic-private-context' },
+    comments: { mode: config.commentMode, paused: false, privacyReviewRequired: config.commentPrivacyMode === 'strict',
+      budget: { attempts: 0, limit: 5, mentionAttempts: 0, mentionLimit: 5 }, recent: [] } });
   const React = { createElement: (type, props, ...children) => ({ type, props: props || {}, children: children.flat(Infinity) }),
     useState(initial) { const i = stateIndex++; if (!(i in values)) values[i] = initial; return [values[i], v => { values[i] = typeof v === 'function' ? v(values[i]) : v; }]; },
     useRef(initial) { const i = refIndex++; return refs[i] ||= { current: initial }; }, useEffect(fn) { effects.push(fn); } };
@@ -456,10 +498,11 @@ test('public comment UI requires refreshed final text and a second explicit conf
   button(tree, '互动').props.onClick(); tree = render();
   assert.equal(flat(tree).find(n => n?.props?.id === 'bili-tab-interaction').props.hidden, false);
   assert.equal(flat(tree).find(n => n?.props?.id === 'bili-tab-browse').props.hidden, true);
-  for (const label of ['评论设置', '评论区关键词互动', '指定提及对象']) {
-    const summary = flat(tree).find(n => n?.type === 'summary' && text(n) === label);
-    assert.ok(summary); assert.equal(flat(tree).find(n => n?.type === 'details' && n.children.includes(summary)).props.open, undefined);
-  }
+  button(tree, '互动设置').props.onClick(); tree = render();
+  assert.equal(flat(tree).find(n => n?.props?.id === 'bili-interaction-settings-send').props.hidden, false);
+  assert.equal(flat(tree).find(n => n?.props?.id === 'bili-interaction-settings-replies').props.hidden, true);
+  assert.equal(flat(tree).find(n => n?.props?.id === 'bili-interaction-settings-mentions').props.hidden, true);
+  assert.ok(flat(flat(tree).find(n => n?.props?.id === 'bili-interaction-settings-send')).every(n => n?.type !== 'details'), 'send settings use direct controls, without accordions');
   button(tree, '记录').props.onClick(); tree = render();
   const choice = flat(tree).find(n => n?.type === 'label' && text(n).includes('@指定对象')).children.find(n => n?.type === 'input');
   choice.props.onChange({ target: { checked: true } }); tree = render();
@@ -469,8 +512,12 @@ test('public comment UI requires refreshed final text and a second explicit conf
   button(tree, '发送这条评论').props.onClick(); tree = render();
   assert.equal(calls.filter(c => c.action === 'publish_comment').length, 0, 'first click only reveals final confirmation');
   assert.ok(text(tree).includes('确认用 UID 123'));
+  const privacyLabel = flat(tree).find(n => n?.type === 'label' && text(n).includes('已额外核对本条不含私信'));
+  assert.ok(privacyLabel, 'strict mode requires a separate, context-bound privacy acknowledgement');
+  flat(privacyLabel).find(n => n?.type === 'input').props.onChange({ target: { checked: true } }); tree = render();
   await button(tree, '确认发表').props.onClick(); await flush(); tree = render();
   assert.equal(calls.find(c => c.action === 'publish_comment').revision, 'version-2');
+  assert.equal(calls.find(c => c.action === 'publish_comment').privacyReviewed, true);
   config.mentionTargets = []; config.commentMentionsEnabled = false; values[0] = status(); tree = render();
   const removed = flat(tree).find(n => n?.type === 'label' && text(n).includes('已停用或移除')).children.find(n => n?.type === 'input');
   assert.equal(removed.props.disabled, false, 'removed or disabled targets can still be explicitly deselected');
@@ -550,7 +597,7 @@ test('owner fields save canonical identity and history deletion requires the exp
   assert.ok(text(tree).includes('查询到的真实昵称'));
   assert.equal(labelInput(tree, '使用者昵称').props.value, '', 'lookup must not overwrite the chosen display name');
   labelInput(tree, '告诉 DeepSeek').props.onChange({ target: { checked: true } }); tree = render();
-  await button(tree, '保存设置').props.onClick(); await flush(); tree = render();
+  await button(tree, '保存基础人设').props.onClick(); await flush(); tree = render();
   assert.equal(saved.ownerAccountUid, '456'); assert.equal(labelInput(tree, '使用者 UID').props.value, '456');
   assert.ok(text(tree).includes('查询到的真实昵称'), 'canonical save should retain the matched profile');
   labelInput(tree, '使用者 UID').props.onChange({ target: { value: '789' } }); tree = render();

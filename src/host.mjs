@@ -165,14 +165,14 @@ export class DshHost {
       throw new PluginError('BINDING_REPAIR', '创建或挂接未完全确认，请恢复原绑定，不要重复创建。', 409);
     }
   }
-  async prompt(run, text) {
+  async prompt(run, text, images = []) {
     const binding = await this.requireBinding();
     assert(binding.sessionId === run.sessionId, 'BINDING_MISMATCH', '任务与当前绑定不一致。', 409);
     const live = this.agents.get(binding.sessionId);
     if (live) await this.prepare(live);
     await this.controller.prompt({
       requestId: run.id, sessionId: run.sessionId, mode: 'queue',
-      content: [{ type: 'text', text }],
+      content: [{ type: 'text', text }, ...images],
     }, new AbortController().signal);
     const agent = this.agents.get(run.sessionId);
     assert(agent, 'HOST_UNSUPPORTED', '宿主未返回已投递任务的 Agent。', 503);

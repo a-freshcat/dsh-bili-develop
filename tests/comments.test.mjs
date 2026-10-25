@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fixture, BV, preview } from './fixtures.mjs';
 import { Comments } from '../src/comments.mjs';
-import { Store } from '../src/store.mjs';
+import { DEFAULT_CONFIG, Store } from '../src/store.mjs';
 import { configOf, parsePreview } from '../src/decision.mjs';
 
 const target = (uid = '456', name = '测试对象') => ({ uid, name, enabled: true, allowComment: true, allowDynamic: false });
@@ -60,6 +60,29 @@ test('manual publication uses final revision, persists a receipt/note and reuses
   assert.equal(saved.confirmationSource, 'platform_receipt');
   assert.equal(f.counters.create, 1); assert.equal(f.counters.prompt, 1);
   await assert.rejects(f.send(updated), { code: 'COMMENT_DRAFT' }); assert.equal(f.posts().length, 1);
+});
+
+test('comment content mode can send an eligible automatic draft in a shared-private conversation but never skips content checks', async t => {
+  const f = await setup(t, { commentMode: 'auto', commentPrivacyMode: 'strict' });
+  const d = await f.draft();
+  f.controller.privacy.remember('comment-content-policy-private', f.controller.privacy.session(), '123', '456',
+    ['這是一段與公開評論完全無關的測試私信內容']);
+  assert.throws(() => f.controller.comments.assertDraft(d, true), { code: 'PRIVACY_AUTO_BLOCKED' });
+  assert.equal(f.comments.budget('123').attempts, 0);
+  f.store.set('commentsPaused', false);
+  f.store.set('config', { ...f.store.config(), commentPrivacyMode: 'content' });
+  assert.doesNotThrow(() => f.controller.comments.assertDraft(f.comments.get(d.id), true));
+  await f.controller.comments.send(d.id, d.revision, true);
+  assert.equal(f.comments.get(d.id).state, 'sent'); assert.equal(f.posts().length, 1);
+  assert.equal(f.comments.budget('123').attempts, 1);
+  assert.throws(() => f.controller.privacy.check('這是一段與公開評論完全無關的測試私信內容'), { code: 'PRIVACY_PRIVATE_TEXT' });
+  assert.equal(f.posts().length, 1, 'known private text still blocks before any second platform request');
+});
+
+test('strict privacy remains the migration default for pre-existing comment configuration', () => {
+  const { commentPrivacyMode: _omitted, ...legacyConfig } = DEFAULT_CONFIG;
+  const normalized = configOf(legacyConfig);
+  assert.equal(normalized.commentPrivacyMode, 'strict');
 });
 
 test('uncertain sends retain quota and prevent retries across record deletion and reopening', async t => {

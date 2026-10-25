@@ -22,12 +22,12 @@ export function historyWhere(input = {}, zone = 'UTC', terminal = false) {
   assert(typeof filter.q === 'string' && filter.q.length <= 100 && !/[\r\n\0]/.test(filter.q) && typeof filter.from === 'string' && typeof filter.to === 'string', 'HISTORY_FILTER', '搜索词或日期格式无效。');
   filter.q = filter.q.trim();
   assert(['all', ...KINDS].includes(filter.kind) && ['all', ...TERMINAL, 'reading', 'awaiting_model', 'saving', 'needs_review'].includes(filter.state) &&
-    ['all', 'subtitle', 'asr', 'comments', 'interaction'].includes(filter.source), 'HISTORY_FILTER', '记录类型、状态或内容来源无效。');
+    ['all', 'subtitle', 'asr', 'frames', 'comments', 'interaction', 'owner_mention'].includes(filter.source), 'HISTORY_FILTER', '记录类型、状态或内容来源无效。');
   assert(!filter.from || !filter.to || filter.from <= filter.to, 'HISTORY_FILTER', '开始日期不能晚于结束日期。');
   const clauses = ["kind IN ('video','interaction','probe')"], params = [];
   if (terminal) clauses.push("state IN ('preview','completed','skipped','failed','interrupted')");
   for (const key of ['kind', 'state']) if (filter[key] !== 'all') { clauses.push(key + '=?'); params.push(filter[key]); }
-  if (filter.source !== 'all') { clauses.push("json_extract(data,'$.evidence.source')=?"); params.push(filter.source); }
+  if (filter.source !== 'all') { clauses.push(filter.source === 'owner_mention' ? "kind='video' AND json_extract(data,'$.source')=?" : "json_extract(data,'$.evidence.source')=?"); params.push(filter.source); }
   if (filter.q) {
     clauses.push("(instr(lower(bvid),lower(?))>0 OR instr(lower(COALESCE(json_extract(data,'$.evidence.title'),'')),lower(?))>0 OR instr(lower(COALESCE(json_extract(data,'$.preview.summary'),'')),lower(?))>0)");
     params.push(filter.q, filter.q, filter.q);
@@ -41,7 +41,40 @@ export class History {
   constructor(c) { this.c = c; this.s = c.store; this.deleteFile = deleteNote; }
   status(filters) {
     return { filter: historyWhere(filters, this.s.config().timeZone).filter, totalAll: this.s.count(),
-      pendingNotes: this.s.get('pendingHistoryNotes', []).length, notice: this.notice || '' };
+      pendingNotes: this.s.get('pendingHistoryNotes', []).length, pending: this.pending(), notice: this.notice || '' };
+  }
+  /**
+   * Outgoing items that were drafted or stopped but never published.
+   *
+   * Comments and DMs live in their own tables, which used to be reachable only
+   * from the interaction and relationship tabs. The record page is the single
+   * place a user looks for "what did it try to send", so both are joined here.
+   * Only items that have not reached the platform are listed: `sent` and
+   * `unknown` attempts already have a run record and are never re-offered.
+   */
+  pending() {
+    const account = this.c.social.account || this.s.get('commentAccount', '');
+    const needsManual = text => /隐私|PRIVACY|复审|人工|拦截/.test(String(text || ''));
+    const comments = this.s.db.prepare("SELECT data FROM comment_drafts WHERE state IN ('draft','cancelled') ORDER BY rowid DESC LIMIT 40")
+      .all().map(row => JSON.parse(row.data)).filter(d => !d.contentCleared).map(d => ({
+        kind: 'comment', id: d.id, accountUid: d.accountUid || '', bvid: d.bvid || '',
+        targetId: d.target?.id || '', targetText: String(d.target?.text || '').slice(0, 120),
+        text: String(d.text || '').slice(0, 200), at: d.createdAt || null,
+        state: d.state, reason: String(d.reason || ''),
+        manual: !!(d.target || d.state === 'cancelled' || needsManual(d.reason)),
+        url: d.bvid ? 'https://www.bilibili.com/video/' + d.bvid + '/' + (d.target ? '#reply' + d.target.id : '') : '',
+      }));
+    const messages = this.s.db.prepare("SELECT data FROM private_messages WHERE state IN ('failed','skipped','evaluating') ORDER BY at_ms DESC LIMIT 40")
+      .all().map(row => JSON.parse(row.data)).filter(m => !m.contentCleared).map(m => ({
+        kind: 'dm', id: m.id, accountUid: m.accountUid || '', uid: m.uid || '',
+        text: String(m.draft || '').slice(0, 200), received: String(m.text || '').slice(0, 120),
+        at: m.at || null, state: m.state, reason: String(m.reason || ''),
+        manual: needsManual(m.reason) || m.state === 'failed',
+        url: m.uid ? 'https://space.bilibili.com/' + m.uid : '',
+      }));
+    const items = [...comments, ...messages].sort((a, b) => (b.at || 0) - (a.at || 0));
+    return { accountUid: account, total: items.length, manual: items.filter(i => i.manual).length,
+      comments: comments.length, messages: messages.length, items: items.slice(0, 40) };
   }
   preview(filters) {
     this.c.social.assertIdle();

@@ -74,6 +74,28 @@ def select_samples(pages, bvid, budget):
     return selected
 
 
+async def read_discussion(bvid, oid, thread_page, cred):
+    """A bounded context sample for a verified mention; no evaluation or posting."""
+    pages = {"thread": {"replies": ([thread_page.get("root")] + (thread_page.get("replies") or [])[:20])}}
+    orders = {"hot": comment.OrderType.LIKE, "recent": comment.OrderType.TIME}
+
+    async def fetch(order):
+        return await asyncio.wait_for(comment.get_comments(
+            oid=int(oid), type_=comment.CommentResourceType.VIDEO, page_index=1,
+            order=order, credential=cred), timeout=12)
+
+    responses = await asyncio.gather(*(fetch(order) for order in orders.values()), return_exceptions=True)
+    failed = []
+    for order, response in zip(orders, responses):
+        if isinstance(response, BaseException) or not isinstance(response, dict):
+            failed.append(order)
+        else:
+            pages[order] = response
+    samples = select_samples(pages, bvid, TEXT_LIMIT)
+    return {"comments": samples, "count": len(samples), "limit": LIMIT, "maxChars": TEXT_LIMIT,
+            "orders": list(pages), "failedOrders": failed}
+
+
 async def read_sound_video(obj, info, base, cred, budget):
     classification = classify(str(info.get("title", ""))[:1000], "title")
     if classification is None and base.get("cid"):

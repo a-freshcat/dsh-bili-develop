@@ -287,6 +287,15 @@ async def dispatch(method, params, cred):
         return await asyncio.wait_for(owner_mentions(params, cred), timeout=50)
     if method == "interaction_scan":
         return await scan_interactions(params, cred)
+    if method == 'mentioned_video_context':
+        owner = params.get('owner_mention_uid')
+        if not isinstance(owner, str) or not re.fullmatch(r'[1-9][0-9]{0,19}', owner):
+            raise PublishError('INTERACTION_READ', '使用者身份无效，未读取关联讨论。')
+        found = await target(params, cred, resolve_mentions=False)
+        original, data = await reply_context(params, found, cred)
+        import community
+        discussion = await community.read_discussion(found['bvid'], found['oid'], data, cred)
+        return {'accountUid': found['accountUid'], 'bvid': found['bvid'], 'target': original, 'discussion': discussion}
     if method == 'comment_feedback':
         found = await target(params, cred, resolve_mentions=False)
         own_id, root_id, at = params.get('comment_id'), params.get('root_id'), params.get('attempted_at')

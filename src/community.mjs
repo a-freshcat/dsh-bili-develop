@@ -1,5 +1,21 @@
 import { assert } from './errors.mjs';
 
+export function validateDiscussion(value, run) {
+  const valid = (condition, message) => assert(condition, 'INVALID_EVIDENCE', message);
+  valid(value && Array.isArray(value.comments) && value.comments.length <= 20 && value.count === value.comments.length && value.limit === 20 &&
+    value.maxChars === 6000 && Array.isArray(value.orders) && Array.isArray(value.failedOrders) &&
+    [...value.orders, ...value.failedOrders].every(order => ['thread', 'hot', 'recent'].includes(order)), '关联评论区的数量或来源无效。');
+  const ids = new Set(); let used = 0;
+  for (const row of value.comments) {
+    valid(typeof row.id === 'string' && /^[1-9]\d{0,29}$/.test(row.id) && !ids.has(row.id) && typeof row.text === 'string' &&
+      row.text.trim().length >= 6 && row.text.length <= 500 && value.orders.includes(row.order) &&
+      row.url === `https://www.bilibili.com/video/${run.bvid}/#reply${row.id}` && Number.isInteger(row.likes) && row.likes >= 0 && row.likes <= 2147483647 &&
+      typeof row.truncated === 'boolean', '关联评论区原文或链接无效。');
+    ids.add(row.id); used += row.text.length + 1;
+  }
+  valid(used <= value.maxChars, '关联评论区超出读取预算。');
+}
+
 // The sample is community testimony about a whole video, never an audio observation.
 export function validateCommentEvidence(evidence, run, config) {
   if (evidence.source !== 'comments') return;

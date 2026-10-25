@@ -21,12 +21,14 @@ export const DEFAULT_CONFIG = Object.freeze({
   asrEnabled: false, asrModelPath: '', asrMaxSeconds: 180, dailyAudioSeconds: 1800,
   dailyAudioRequests: 10, audioTimeoutSeconds: 300,
   asrDownloadModel: 'small', asrDownloadSource: 'official',
+  visionEnabled: false, visionFramesPerVideo: 8, visionTimeoutSeconds: 180,
+  dailyVisionRequests: 100, dailyVisionFrames: 2000,
   ownerAccountEnabled: false, ownerAccountUid: '', ownerAccountName: '', ownerAttitudeEnabled: false,
   dmEnabled: false, dmAutoSend: false, dmUseBrowseHours: true, dmDailyReplyLimit: 20, dmPerPersonDailyLimit: 3,
   dmDailyEvaluationLimit: 50, dmPollSeconds: 60, dmMaxChars: 300, dmMinIntervalSeconds: 120,
   autoFollowEnabled: false, autoFollowDailyLimit: 3, autoFollowMinIntervalSeconds: 3600,
   dmProactiveEnabled: false, dmProactiveDailyLimit: 3,
-  commentMode: 'preview', dailyCommentLimit: 5, perRoundCommentLimit: 1, commentMinIntervalSeconds: 300,
+  commentMode: 'preview', commentPrivacyMode: 'strict', dailyCommentLimit: 5, perRoundCommentLimit: 1, commentMinIntervalSeconds: 300,
   commentMentionsEnabled: false, dailyMentionLimit: 5, mentionsPerComment: 1, mentionMinIntervalSeconds: 3600,
   mentionTargets: [],
   interactionKeywords: [], ownerCommentReplyEnabled: false, ownerMentionPollSeconds: 120,
@@ -62,7 +64,7 @@ export class Store {
       CREATE INDEX IF NOT EXISTS usage_time ON usage_ledger(at_ms,kind);
       INSERT OR IGNORE INTO usage_ledger(id,kind,bvid,at_ms)
         SELECT 'analysis:'||id,'analysis',bvid,CAST(strftime('%s',created_at) AS INTEGER)*1000
-        FROM runs WHERE kind='video';
+        FROM runs WHERE kind='video' AND COALESCE(json_extract(data,'$.source'),'manual')<>'owner_mention';
       CREATE TABLE IF NOT EXISTS rounds (id TEXT PRIMARY KEY,state TEXT NOT NULL,data TEXT NOT NULL);
       CREATE UNIQUE INDEX IF NOT EXISTS one_open_round ON rounds ((1))
         WHERE state IN ('queued','searching','running','paused','waiting');
@@ -75,6 +77,11 @@ export class Store {
         id TEXT PRIMARY KEY,at_ms INTEGER NOT NULL,seconds INTEGER NOT NULL,state TEXT NOT NULL,data TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS audio_usage_time ON audio_jobs(at_ms);
+      CREATE TABLE IF NOT EXISTS frame_jobs (
+        id TEXT PRIMARY KEY,at_ms INTEGER NOT NULL,frames INTEGER NOT NULL,seconds INTEGER NOT NULL,
+        state TEXT NOT NULL,data TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS frame_usage_time ON frame_jobs(at_ms);
     `);
   }
   get(key, fallback = null) {
@@ -109,7 +116,7 @@ export class Store {
       const round = roundId && this.round(roundId);
       if (roundId && (!round || !['running', 'waiting'].includes(round.state)))
         throw new PluginError('ROUND_NOT_READY', '本轮已暂停或结束。', 409);
-      if (kind === 'video') this.charge('analysis', id, bvid, this.config(), now);
+      if (kind === 'video' && source !== 'owner_mention') this.charge('analysis', id, bvid, this.config(), now);
       if (admit) admit();
       const time = new Date(now).toISOString();
       const run = { id, kind, bvid, sessionId, source, roundId, accountUid, state: 'reading', createdAt: time, updatedAt: time };
@@ -239,6 +246,38 @@ export class Store {
     if (!before) throw new PluginError('AUDIO_JOB_MISSING', '音频任务不存在。');
     const job = { ...before, ...patch, id };
     this.db.prepare('UPDATE audio_jobs SET state=?,data=? WHERE id=?').run(job.state, JSON.stringify(job), id);
+    return job;
+  }
+  frameBudget(config, now = Date.now()) {
+    const window = this.window(config, now);
+    const usage = this.db.prepare('SELECT COUNT(*) AS requests,COALESCE(SUM(frames),0) AS frames FROM frame_jobs WHERE at_ms>=? AND at_ms<?')
+      .get(window.start, window.end);
+    return { ...window, requests: Number(usage.requests), reservedFrames: Number(usage.frames),
+      requestLimit: config.dailyVisionRequests, framesLimit: config.dailyVisionFrames };
+  }
+  frameJob(id) {
+    const row = this.db.prepare('SELECT data FROM frame_jobs WHERE id=?').get(id);
+    return row ? JSON.parse(row.data) : null;
+  }
+  reserveFrames(id, seconds, now = Date.now()) {
+    return this.transaction(() => {
+      if (this.frameJob(id)) throw new PluginError('VISION_ALREADY_ADMITTED', '本次画面已占用额度，不会重复抽帧。', 409);
+      const config = this.config(), budget = this.frameBudget(config, now);
+      const frames = Math.min(Math.max(1, config.visionFramesPerVideo || 1), Math.max(0, budget.framesLimit - budget.reservedFrames));
+      if (!Number.isFinite(frames) || frames <= 0 || budget.requests >= budget.requestLimit)
+        throw new PluginError('VISION_LIMIT', '画面抽帧额度已用完或设为0；未发起抽帧。', 409);
+      this.window(config, now, true);
+      const job = { id, frames, seconds: Math.max(1, Math.ceil(seconds)), state: 'reserved', at: new Date(now).toISOString() };
+      this.db.prepare('INSERT INTO frame_jobs VALUES(?,?,?,?,?,?)')
+        .run(id, now, job.frames, job.seconds, job.state, JSON.stringify(job));
+      return job;
+    });
+  }
+  finishFrames(id, patch) {
+    const before = this.frameJob(id);
+    if (!before) throw new PluginError('VISION_JOB_MISSING', '画面任务不存在。');
+    const job = { ...before, ...patch, id };
+    this.db.prepare('UPDATE frame_jobs SET state=?,data=? WHERE id=?').run(job.state, JSON.stringify(job), id);
     return job;
   }
   close() { this.db.close(); }

@@ -95,6 +95,21 @@ class PublishingTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(publishing.PublishError):
                 await self.dispatch('comment_feedback', comment_id='555', root_id='555', attempted_at=100000)
 
+    async def test_direct_reply_to_own_keyword_subcomment_uses_original_thread_and_ignores_other_conversations(self):
+        root = self.root(rpid=101, content={'message': '鱼来'})
+        own = self.root(rpid=555, root=101, parent=101, member={'mid': 123}, content={'message': '内容很清晰。'})
+        reply = self.root(rpid=601, root=101, parent=555, ctime=100, content={'message': '谢谢，你刚才说得很有趣。'})
+        self.subcomments.return_value = {'root': root, 'replies': [own, reply,
+            self.root(rpid=602, root=101, parent=101, ctime=100),
+            self.root(rpid=603, root=101, parent=999, ctime=100)]}
+        found = await self.dispatch('comment_feedback', comment_id='555', root_id='101', attempted_at=100000)
+        self.assertEqual([r['id'] for r in found['replies']], ['601'])
+        self.assertEqual(found['replies'][0]['root'], '101')
+        target = {k: found['replies'][0][k] for k in ('id', 'root', 'uid', 'text', 'level')}
+        probe = await self.dispatch('comment_reply_probe', target=target, self_reply_parent='555')
+        self.assertEqual(probe['target'], target)
+        self.assertEqual(self.posts, [])
+
     async def test_credential_leak_is_blocked_before_comment_post(self):
         with self.assertRaises(publishing.PublishError) as cm:
             await self.dispatch(text='内容包含test-placeholder')
