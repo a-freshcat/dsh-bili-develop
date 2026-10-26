@@ -3,6 +3,7 @@ import { assert } from './errors.mjs';
 import { digest } from './weekly-assets.mjs';
 import { localDay } from './time.mjs';
 import { noteForDeletion, deleteNote } from './notebook.mjs';
+import { requestIdOf } from './decision.mjs';
 
 const TERMINAL = ['preview', 'completed', 'skipped', 'failed', 'interrupted'];
 const KINDS = ['video', 'interaction', 'probe'];
@@ -39,9 +40,15 @@ export function historyWhere(input = {}, zone = 'UTC', terminal = false) {
 
 export class History {
   constructor(c) { this.c = c; this.s = c.store; this.deleteFile = deleteNote; }
-  status(filters) {
+  status(filters, pendingView = {}) {
     return { filter: historyWhere(filters, this.s.config().timeZone).filter, totalAll: this.s.count(),
-      pendingNotes: this.s.get('pendingHistoryNotes', []).length, pending: this.pending(), notice: this.notice || '' };
+      pendingNotes: this.s.get('pendingHistoryNotes', []).length, pending: this.pending(pendingView), notice: this.notice || '' };
+  }
+  detail(id) {
+    if (!id) return null;
+    const run = this.s.run(requestIdOf(id)), account = this.c.social.account || this.s.get('commentAccount', '');
+    return run && KINDS.includes(run.kind) && run.sessionId === this.s.get('binding')?.sessionId &&
+      (!run.accountUid || run.accountUid === account) ? run : null;
   }
   /**
    * Outgoing items that were drafted or stopped but never published.
@@ -52,29 +59,51 @@ export class History {
    * Only items that have not reached the platform are listed: `sent` and
    * `unknown` attempts already have a run record and are never re-offered.
    */
-  pending() {
+  pending(view = {}) {
+    assert(view && typeof view === 'object' && !Array.isArray(view) && Object.keys(view).every(k => ['filter', 'offset'].includes(k)) &&
+      ['all', 'manual', 'comment', 'dm'].includes(view.filter ?? 'manual') && Number.isInteger(view.offset ?? 0) && (view.offset ?? 0) >= 0 && (view.offset ?? 0) <= 1000000,
+    'HISTORY_PENDING', '待处理筛选或分页无效。');
     const account = this.c.social.account || this.s.get('commentAccount', '');
+    const config = this.s.config(), strictReview = this.c.comments.requiresPrivacyReview();
     const needsManual = text => /隐私|PRIVACY|复审|人工|拦截/.test(String(text || ''));
-    const comments = this.s.db.prepare("SELECT data FROM comment_drafts WHERE state IN ('draft','cancelled') ORDER BY rowid DESC LIMIT 40")
-      .all().map(row => JSON.parse(row.data)).filter(d => !d.contentCleared).map(d => ({
+    const comments = this.s.db.prepare("SELECT d.data,r.id record_id,json_extract(r.data,'$.evidence.title') title FROM comment_drafts d LEFT JOIN runs r ON r.id=d.id WHERE d.account_uid=? AND d.state IN ('draft','cancelled') AND COALESCE(json_extract(d.data,'$.contentCleared'),0)=0 ORDER BY d.rowid DESC")
+      .all(account).map(row => {
+        const d = JSON.parse(row.data);
+        const manualReason = /基础人设|已变化|重新读取|重新生成/.test(d.reason || '') ? '设置或原文已变化，需要重新生成' :
+          strictReview ? '需要本条隐私审核' : needsManual(d.reason) ? d.reason : config.commentMode === 'manual' ? '当前评论方式为逐条确认' :
+            d.state === 'cancelled' ? '已取消，需要核对记录' : config.commentMode === 'auto' && !d.autoEligible ? '旧草稿没有自动发送资格，需要人工核对' : '';
+        return {
         kind: 'comment', id: d.id, accountUid: d.accountUid || '', bvid: d.bvid || '',
+        title: String(row.title || d.bvid || '视频评论'), recordAvailable: !!row.record_id,
         targetId: d.target?.id || '', targetText: String(d.target?.text || '').slice(0, 120),
         text: String(d.text || '').slice(0, 200), at: d.createdAt || null,
         state: d.state, reason: String(d.reason || ''),
-        manual: !!(d.target || d.state === 'cancelled' || needsManual(d.reason)),
+        manual: !!manualReason, manualReason,
         url: d.bvid ? 'https://www.bilibili.com/video/' + d.bvid + '/' + (d.target ? '#reply' + d.target.id : '') : '',
-      }));
-    const messages = this.s.db.prepare("SELECT data FROM private_messages WHERE state IN ('failed','skipped','evaluating') ORDER BY at_ms DESC LIMIT 40")
-      .all().map(row => JSON.parse(row.data)).filter(m => !m.contentCleared).map(m => ({
+      }; });
+    const messages = this.s.db.prepare("SELECT data FROM private_messages WHERE account_uid=? AND state IN ('draft','failed','skipped','evaluating') AND COALESCE(json_extract(data,'$.contentCleared'),0)=0 ORDER BY at_ms DESC,id DESC")
+      .all(account).map(row => JSON.parse(row.data)).map(m => {
+        const manualReason = needsManual(m.reason) ? m.reason : m.state === 'failed' ? '回复生成失败，需要查看原因' :
+          m.state === 'draft' && !config.dmAutoSend ? '私信自动发送未开启，需要人工确认' : '';
+        return {
         kind: 'dm', id: m.id, accountUid: m.accountUid || '', uid: m.uid || '',
+        title: (this.c.social.contacts.person(account, m.uid)?.name || 'UID ' + m.uid) + ' · 私信',
         text: String(m.draft || '').slice(0, 200), received: String(m.text || '').slice(0, 120),
         at: m.at || null, state: m.state, reason: String(m.reason || ''),
-        manual: needsManual(m.reason) || m.state === 'failed',
+        manual: !!manualReason, manualReason,
         url: m.uid ? 'https://space.bilibili.com/' + m.uid : '',
-      }));
-    const items = [...comments, ...messages].sort((a, b) => (b.at || 0) - (a.at || 0));
+      }; });
+    const items = [...comments, ...messages].sort((a, b) => Number(b.manual) - Number(a.manual) || (b.at || 0) - (a.at || 0) || b.id.localeCompare(a.id));
+    const filter = view.filter ?? 'manual', selected = items.filter(item => filter === 'all' || (filter === 'manual' ? item.manual : item.kind === filter));
+    const pageSize = 8, offset = Math.min(view.offset || 0, Math.max(0, Math.ceil(selected.length / pageSize) - 1) * pageSize);
+    const page = selected.slice(offset, offset + pageSize).map(item => {
+      if (item.kind !== 'dm') return item;
+      const newer = this.s.db.prepare("SELECT COUNT(*) n FROM private_messages WHERE account_uid=? AND uid=? AND state<>'redacted' AND (at_ms>? OR (at_ms=? AND id>?))")
+        .get(account, item.uid, item.at, item.at, item.id).n;
+      return { ...item, messageOffset: Math.floor(Number(newer) / 10) * 10 };
+    });
     return { accountUid: account, total: items.length, manual: items.filter(i => i.manual).length,
-      comments: comments.length, messages: messages.length, items: items.slice(0, 40) };
+      comments: comments.length, messages: messages.length, items: page, filteredTotal: selected.length, filter, offset, pageSize };
   }
   preview(filters) {
     this.c.social.assertIdle();

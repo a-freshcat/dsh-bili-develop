@@ -95,9 +95,7 @@ test('direct reply polling obeys activity, pause, evaluation cap and account ide
 test('interaction UI distinguishes keyword roots from direct own-comment replies in the flat reply settings page', async t => {
   const f = await setup(t), ui = await settingsHarness(f.controller); t.after(ui.close);
   let tree = ui.render(); ui.button(tree, '互动').props.onClick(); tree = ui.render();
-  // The interaction tab now opens on the published list; the reply-level switch
-  // and its explanation live in the interaction settings pane.
-  ui.button(tree, '互动设置').props.onClick(); tree = ui.render();
+  // Interaction operations and settings are directly available on this tab.
   ui.button(tree, '接话规则').props.onClick(); tree = ui.render();
   assert.match(nodeText(tree), /关键词只找浏览视频中的普通留言/); assert.match(nodeText(tree), /直接回复检查已开启/);
   assert.match(nodeText(tree), /包括大肥鱼通过关键词互动发出的回复/);
@@ -112,7 +110,6 @@ test('the disabled scan explains its switch and the inline enable action preserv
     browseTags: ['动画'], privacyBlockedTerms: ['保密短语'] });
   const ui = await settingsHarness(f.controller); t.after(ui.close);
   let tree = ui.render(); ui.button(tree, '互动').props.onClick(); tree = ui.render();
-  ui.button(tree, '互动设置').props.onClick(); tree = ui.render();
   ui.button(tree, '接话规则').props.onClick(); tree = ui.render();
   assert.equal(ui.button(tree, '检查自己评论的回复').props.disabled, true);
   assert.match(nodeText(tree), /尚未开启，点击“开启直接回复检查”/);

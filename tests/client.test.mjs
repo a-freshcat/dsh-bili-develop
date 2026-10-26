@@ -33,7 +33,7 @@ test('owner mention controls are on the reply settings page and save independent
   const render = () => { stateIndex = 0; refIndex = 0; effects.length = 0; return panel.type(panel.props); };
   const button = (tree, text) => flat(tree).find(n => n?.type === 'button' && n.children.includes(text));
   render(); const cleanup = effects[0](); await new Promise(r => setImmediate(r)); let tree = render();
-  button(tree, '互动').props.onClick(); tree = render(); button(tree, '互动设置').props.onClick(); tree = render();
+  button(tree, '互动').props.onClick(); tree = render();
   button(tree, '接话规则').props.onClick(); tree = render();
   const section = flat(tree).find(n => n?.props?.id === 'bili-interaction-settings-replies');
   assert.ok(section); assert.equal(section.props.hidden, false);
@@ -364,7 +364,7 @@ test('comment and privacy modes are directly visible and survive scoped saves an
   const flush = () => new Promise(resolve => setImmediate(resolve));
   const reopen = async () => {
     values.length = 0; refs.length = 0; render(); const cleanup = effects[0](); await flush();
-    let tree = render(); button(tree, '互动').props.onClick(); tree = render(); button(tree, '互动设置').props.onClick(); tree = render(); return { tree, cleanup };
+    let tree = render(); button(tree, '互动').props.onClick(); tree = render(); return { tree, cleanup };
   };
   let current = await reopen();
   assert.equal(modeRadios(current.tree).length, 3, 'three comment choices are directly visible');
@@ -498,7 +498,6 @@ test('public comment UI requires refreshed final text and a second explicit conf
   button(tree, '互动').props.onClick(); tree = render();
   assert.equal(flat(tree).find(n => n?.props?.id === 'bili-tab-interaction').props.hidden, false);
   assert.equal(flat(tree).find(n => n?.props?.id === 'bili-tab-browse').props.hidden, true);
-  button(tree, '互动设置').props.onClick(); tree = render();
   assert.equal(flat(tree).find(n => n?.props?.id === 'bili-interaction-settings-send').props.hidden, false);
   assert.equal(flat(tree).find(n => n?.props?.id === 'bili-interaction-settings-replies').props.hidden, true);
   assert.equal(flat(tree).find(n => n?.props?.id === 'bili-interaction-settings-mentions').props.hidden, true);

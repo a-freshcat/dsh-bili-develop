@@ -1,6 +1,6 @@
 /* Uses the Host's React, settings slot and authenticated transport. No bundle step. */
 window.__ModuleLoader__.load({
-  id: 'dsh-bilibili-harness',
+  id: 'dsh-bili-develop',
   factory(require) {
     const React = require('react');
     const h = React.createElement;
@@ -113,6 +113,13 @@ window.__ModuleLoader__.load({
       .bili-harness .interaction-policy{border:1px solid #8883;border-radius:9px;padding:12px 14px;margin:14px 0}
       .bili-harness .interaction-policy h4{margin:0 0 4px}
       .bili-harness .interaction-records{max-height:48vh;overflow-y:auto;overscroll-behavior:contain;padding-right:5px}
+      .bili-harness .record-panel{padding-top:8px;min-width:0}
+      .bili-harness .record-panel .interaction-records{max-height:none;overflow:visible;padding-right:0}
+      .bili-harness .record-card{border:1px solid #8884;border-radius:9px;padding:14px;margin:12px 0;overflow-wrap:anywhere}
+      .bili-harness .record-card>.row:first-child{margin-top:0}
+      .bili-harness .record-attention{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:10px 12px;margin-top:14px;border:1px solid #d7ac6955;border-radius:8px;background:#d7ac6910}
+      .bili-harness .record-focus{border:1px solid #69a6ff77;border-radius:9px;padding:12px;margin-top:14px}
+      .bili-harness .record-tabs{margin-bottom:10px}
       .bili-harness .kind-badge{font-size:11px;padding:2px 6px;border-radius:4px;margin-right:6px;background:#58cba518;color:#77d9b5}
       .bili-harness .kind-badge.sub{background:#bb95ff18;color:#c5a6ff}
       @media(max-width:600px){.bili-harness .two{grid-template-columns:1fr}.bili-harness .cover{width:96px}.bili-harness .dm-layout{grid-template-columns:1fr}.bili-harness .dm-person-list{max-height:28vh}.bili-harness .dm-messages{max-height:46vh}}
@@ -195,7 +202,7 @@ window.__ModuleLoader__.load({
       const [weeklyReviewed, setWeeklyReviewed] = React.useState('');
       const [weeklyImage, setWeeklyImage] = React.useState('');
       const [weeklyOffset, setWeeklyOffset] = React.useState(0);
-      const [historyFilters, setHistoryFilters] = React.useState({ q: '', kind: 'all', state: 'all', source: 'all', from: '', to: '' });
+      const [historyFilters, setHistoryFilters] = React.useState({ q: '', kind: 'video', state: 'all', source: 'all', from: '', to: '' });
       const [historyDelete, setHistoryDelete] = React.useState(null);
       const [diagnostic, setDiagnostic] = React.useState(null);
       const [learningSearch, setLearningSearch] = React.useState({ q: '', state: 'all' });
@@ -203,9 +210,10 @@ window.__ModuleLoader__.load({
       const [privacyReviews, setPrivacyReviews] = React.useState({});
       const [peopleView, setPeopleView] = React.useState('messages');
       const [privateSearch, setPrivateSearch] = React.useState('');
-      const [interactionPane, setInteractionPane] = React.useState('published');
+      const [interactionPane, setInteractionPane] = React.useState('settings');
       const [interactionSettingsPane, setInteractionSettingsPane] = React.useState('send');
       const [publishedSearch, setPublishedSearch] = React.useState('');
+      const [recordPane, setRecordPane] = React.useState('browse');
       const mounted = React.useRef(false);
       const working = React.useRef(false);
       const page = React.useRef(0);
@@ -216,11 +224,14 @@ window.__ModuleLoader__.load({
       const appliedModel = React.useRef('');
       const learningPage = React.useRef(0);
       const weeklyPage = React.useRef(0);
-      const historyQuery = React.useRef({});
+      const historyQuery = React.useRef({ kind: 'video' });
       const learningQuery = React.useRef({});
       const privateQuery = React.useRef({});
       const interactionQuery = React.useRef({});
       const publishedQuery = React.useRef({});
+      const pendingQuery = React.useRef({ filter: 'manual', offset: 0 });
+      const focusedRecord = React.useRef('');
+      const focusedPrivate = React.useRef('');
       const feedbackArea = action => ['bind', 'probe', 'compact'].includes(action) ? 'binding' :
         action.startsWith('weekly_') ? 'weekly' :
         action.startsWith('learning_') ? 'learning' :
@@ -249,9 +260,12 @@ window.__ModuleLoader__.load({
         const requestedPrivate = privateQuery.current;
         const requestedInteractions = interactionQuery.current;
         const requestedPublished = publishedQuery.current;
+        const requestedPending = pendingQuery.current, requestedRecord = focusedRecord.current, requestedHistory = historyQuery.current;
         const value = await api({ action: 'status', offset: page.current, contactsOffset: contactPage.current.offset, contactQuery: contactPage.current.query, learningOffset: learningPage.current,
-          weeklyOffset: weeklyPage.current, filters: historyQuery.current, learningView: requestedLearning, privateView: requestedPrivate, interactionView: requestedInteractions, publishedView: requestedPublished });
-        if (!mounted.current || requestedLearning !== learningQuery.current || requestedPrivate !== privateQuery.current || requestedInteractions !== interactionQuery.current || requestedPublished !== publishedQuery.current) return;
+          weeklyOffset: weeklyPage.current, filters: requestedHistory, recordId: requestedRecord, pendingView: requestedPending,
+          learningView: requestedLearning, privateView: requestedPrivate, interactionView: requestedInteractions, publishedView: requestedPublished });
+        if (!mounted.current || requestedLearning !== learningQuery.current || requestedPrivate !== privateQuery.current || requestedInteractions !== interactionQuery.current || requestedPublished !== publishedQuery.current ||
+          requestedPending !== pendingQuery.current || requestedRecord !== focusedRecord.current || requestedHistory !== historyQuery.current) return;
         setStatus(value);
         if (value.social?.privateView) {
           if (requestedPrivate.account && requestedPrivate.account !== value.social.privateView.account) setPrivateSearch('');
@@ -370,6 +384,7 @@ window.__ModuleLoader__.load({
             setMentionSelection(before => { const next = { ...before }; delete next[fields.requestId]; return next; });
           }
           if (action === 'delete_record' || action === 'dm_forget') setDeleting('');
+          if (action === 'delete_record' && focusedRecord.current === fields.requestId || action === 'history_confirm_delete') focusedRecord.current = '';
           if (action === 'rate_contact') setRating(null);
           if (action === 'learning_change' || action === 'learning_rollback') setLearningConfirm('');
           if (action.startsWith('weekly_')) {
@@ -565,7 +580,8 @@ window.__ModuleLoader__.load({
           person.drafts > 0 && h('span', { className: 'pending-badge' }, person.drafts, '份草稿')),
         h('span', { className: 'dm-person-meta' }, 'UID ', person.uid, ' · ', person.total, '条记录'),
         h('span', { className: 'dm-person-meta' }, person.latestAt ? dateText(person.latestAt) : '尚无私信记录'));
-      const privateMessage = m => h('details', { className: 'dm-message', key: m.id, 'data-message-id': m.id },
+      const privateMessage = m => h('details', { className: 'dm-message', key: m.id, id: 'bili-private-' + m.id, 'data-message-id': m.id,
+        ...(focusedPrivate.current === m.id ? { open: true } : {}) },
         h('summary', null, dateText(m.at), ' · ', m.kind === 'proactive' ? '主动问候 · ' : '', privateStates[m.state] || m.state),
         m.text && h(React.Fragment, null, h('p', { className: 'message-label' }, '对方来信'), h('blockquote', { className: 'root-comment' }, m.text)),
         m.inlineEmotes?.length > 0 && h('p', { className: 'muted' }, '表情代码：', m.inlineEmotes.join(' '), '（按文字名称理解，未识别图片）'),
@@ -614,6 +630,131 @@ window.__ModuleLoader__.load({
         h('p', { className: 'muted' }, '仅依据推荐的实际标签与简介选片，不表示已经看过；资料时间：', dateText(round.selection.checkedAt)),
         ...round.selection.chosen.map(v => h('p', { key: v.bvid }, h('a', { href: 'https://www.bilibili.com/video/' + v.bvid, target: '_blank', rel: 'noopener noreferrer' }, v.title),
           ' · ', v.reason, h('span', { className: 'muted record-meta' }, '实际标签：', v.tags.join('、') || '无标签'))));
+
+      const scrollToRecord = id => {
+        if (typeof document !== 'undefined') setTimeout(() => document.getElementById(id)?.scrollIntoView?.({ block: 'start', behavior: 'smooth' }), 50);
+      };
+      const openRecord = async id => {
+        focusedRecord.current = id; setTab('history');
+        try { await refresh(); scrollToRecord('bili-focused-record'); } catch (e) { setError(e.message); }
+      };
+      const changePendingView = patch => {
+        pendingQuery.current = { ...pendingQuery.current, ...patch }; setRecordPane('pending');
+        return refresh().catch(e => setError(e.message));
+      };
+      const openPrivateRecord = async item => {
+        focusedPrivate.current = item.id; setTab('people'); setPeopleView('messages'); setPrivateSearch('');
+        privateQuery.current = { account: status.social.accountUid, uid: item.uid, offset: item.messageOffset || 0, peopleOffset: 0, q: '' };
+        try { await refresh(); scrollToRecord('bili-private-' + item.id); } catch (e) { setError(e.message); }
+      };
+      const renderPending = () => {
+        const p = status.history?.pending;
+        if (!p) return null;
+        return h('div', { id: 'bili-history-pending', className: 'record-panel', hidden: recordPane !== 'pending' },
+          h('h4', null, '待处理 · ', p.total, ' 条'),
+          h('p', { className: 'muted' }, '需人工处理 ', p.manual, ' 条；每条展示原因与文案。进入详情不会发送内容，实际发送仍需遵守当前模式和审核。'),
+          h('div', { className: 'row', role: 'group', 'aria-label': '待处理筛选' },
+            ...[['manual', '只看需人工处理', p.manual], ['all', '全部待发', p.total], ['comment', '评论', p.comments], ['dm', '私信', p.messages]].map(([id, label, count]) =>
+              h('button', { key: id, type: 'button', 'aria-pressed': p.filter === id, disabled: busy, onClick: () => changePendingView({ filter: id, offset: 0 }) }, label, ' ', count))),
+          ...(p.items || []).map(item => h('article', { key: item.kind + ':' + item.id, className: 'record-card', 'data-pending-id': item.id },
+            h('div', { className: 'row' }, h('span', { className: 'kind-badge' + (item.kind === 'dm' ? ' sub' : '') }, item.kind === 'dm' ? '私信' : '评论'),
+              h('strong', null, item.title), item.manual && h('span', { className: 'pending-badge' }, '需人工处理')),
+            h('p', { className: 'muted' }, dateText(item.at), ' · ', item.kind === 'dm' ? privateStates[item.state] || item.state : commentStates[item.state] || item.state),
+            h('p', { className: item.manual ? 'pending-badge' : 'muted' }, '处理原因：', item.manualReason || item.reason || '等待发送条件'),
+            (item.targetText || item.received) && h('div', null, h('span', { className: 'message-label' }, item.kind === 'dm' ? '对方来信' : '原留言'),
+              h('blockquote', { className: item.kind === 'dm' ? 'sub-comment' : 'root-comment' }, item.targetText || item.received)),
+            h('span', { className: 'message-label' }, '大肥鱼 · 待发文案'), h('blockquote', { className: 'self-comment' }, item.text || '没有可发送草稿，请查看生成失败原因。'),
+            h('div', { className: 'row' },
+              item.kind === 'comment' ? h('button', { type: 'button', disabled: busy || !item.recordAvailable, onClick: () => openRecord(item.id) }, '查看这条评论并处理') :
+                h('button', { type: 'button', disabled: busy, onClick: () => openPrivateRecord(item) }, '定位这条私信并处理'),
+              item.url && h('a', { href: item.url, target: '_blank', rel: 'noopener noreferrer' }, item.kind === 'dm' ? '打开对方主页' : '打开视频')),
+            item.kind === 'comment' && !item.recordAvailable && h('p', { className: 'muted' }, '原记录已清理，保留的文案不可直接发送。'))),
+          !p.items?.length && h('p', { className: 'dm-empty' }, p.filter === 'manual' ? '当前没有需要人工处理的条目；可切换到全部待发。' : '此分类没有待处理条目。'),
+          h('div', { className: 'row' },
+            h('button', { type: 'button', disabled: busy || !p.offset, onClick: () => changePendingView({ offset: Math.max(0, p.offset - p.pageSize) }) }, '上一页待处理'),
+            h('span', { className: 'muted' }, rangeText(p.offset, p.pageSize, p.filteredTotal)),
+            h('button', { type: 'button', disabled: busy || p.offset + p.pageSize >= p.filteredTotal, onClick: () => changePendingView({ offset: p.offset + p.pageSize }) }, '下一页待处理')));
+      };
+      const renderPublished = () => h('div', { id: 'bili-published-comments', className: 'record-panel', hidden: recordPane !== 'published' },
+            h('h4', null, '已发评论 · 共 ', published?.total || 0, ' 条'),
+            h('p', { className: 'muted' }, '汇总当前账号已确认发送的主动评论、关键词回复与楼中楼接话。平台接收不保证其他账号可见；结果未知的尝试仍在原记录中核对。'),
+            h('label', null, h('span', null, '按视频、BV号或评论内容查找'), h('input', { value: publishedSearch, maxLength: 100,
+              onChange: e => setPublishedSearch(e.target.value), disabled: busy })),
+            h('div', { className: 'row' }, h('button', { disabled: busy, onClick: () => {
+              publishedQuery.current = { ...publishedQuery.current, q: publishedSearch, offset: 0 }; return refresh();
+            } }, '查找已发评论'), h('button', { disabled: busy, onClick: () => {
+              setPublishedSearch(''); publishedQuery.current = { ...publishedQuery.current, q: '', offset: 0 }; return refresh();
+            } }, '显示全部已发评论')),
+            h('div', { className: 'interaction-records' }, ...(published?.rows || []).map(d => h('article', { key: d.id, className: 'private-item', 'data-published-comment': d.id },
+              h('strong', null, d.title || d.bvid), h('p', { className: 'muted' }, d.target ? d.target.level === 'sub' ? '楼中楼接话' : '回复普通留言' : '主动视频评论',
+                ' · ', dateText(d.attemptedAt || d.confirmedAt)),
+              h('blockquote', { className: 'self-comment' }, d.text || '本地文案已清理。'),
+              h('div', { className: 'row' }, h('a', { href: 'https://www.bilibili.com/video/' + d.bvid + '/#reply' + d.receipt, target: '_blank', rel: 'noopener noreferrer' }, '打开已发评论'),
+                h('button', { disabled: busy, onClick: () => openRecord(d.id) }, '查看这条评论的记录')))),
+              !published?.rows?.length && h('p', { className: 'dm-empty' }, '暂无匹配的已确认发送评论。')),
+            published && h('div', { className: 'row' }, h('button', { disabled: busy || !published.offset, onClick: () => {
+              publishedQuery.current = { ...publishedQuery.current, offset: Math.max(0, published.offset - published.pageSize) }; return refresh();
+            } }, '上一页已发评论'), h('span', { className: 'muted' }, rangeText(published.offset, published.pageSize, published.total)),
+              h('button', { disabled: busy || published.offset + published.pageSize >= published.total, onClick: () => {
+                publishedQuery.current = { ...publishedQuery.current, offset: published.offset + published.pageSize }; return refresh();
+              } }, '下一页已发评论')),
+            recentUnconfirmedComments.length > 0 && h('div', { className: 'setting-group' }, h('h4', null, '近期未确认的发送尝试'),
+              h('p', { className: 'muted' }, '结果不明或失败的尝试不计入已发评论；可只读核对，绝不自动重发。'),
+              ...recentUnconfirmedComments.map(d => h('article', { key: d.id, className: 'private-item' },
+                h('strong', null, d.title || d.bvid), h('p', { className: 'muted' }, commentStates[d.state] || d.state, ' · ', dateText(d.attemptedAt)),
+                publication(d)))));
+      const renderRunDetails = (run, focused = false) => h('details', { key: run.id, id: (focused ? 'bili-focused-' : 'bili-record-') + run.id, ...(focused ? { open: true } : {}) },
+            h('summary', null, h('span', { className: 'record-top' },
+              run.kind === 'video' && (run.evidence?.cover ? h('img', { className: 'cover', src: run.evidence.cover,
+                alt: '视频封面', loading: 'lazy', referrerPolicy: 'no-referrer',
+                onError: e => { e.currentTarget.alt = '封面暂不可用'; } }) : h('span', { className: 'cover cover-placeholder' }, '封面暂缺')),
+              h('span', null, h('strong', null, run.evidence?.title || run.bvid || '模型接入检查'),
+                h('span', { className: 'muted record-meta' }, states[run.state] || run.state, ' · ', dateText(run.createdAt))))),
+            ['video', 'interaction'].includes(run.kind) && h('a', { href: 'https://www.bilibili.com/video/' + run.bvid + '/', target: '_blank', rel: 'noopener noreferrer' }, '打开视频'),
+            h('p', { className: 'muted' }, dateText(run.createdAt), ' · ', h('code', null, run.id)),
+            run.kind === 'video' && h('p', { className: 'muted' }, '来源：',
+              ({ manual: '手动读取', immediate: '立即运行', scheduled: '定时浏览', interaction: '评论互动' })[run.source || 'manual'],
+              run.roundId ? ' · 轮次 ' + run.roundId : ''),
+            run.browseSelection?.mode === 'tag' && h('p', { className: 'muted' }, 'TAG入口：', run.browseSelection.query,
+              ' · 实际标签：', run.browseSelection.tags.map(t => t.name).join('、'), ' · 核对时间：', dateText(run.browseSelection.checkedAt)),
+            run.browseSelection?.mode === 'autonomous' && h('p', { className: 'muted' }, '自主选片：', run.browseSelection.reason,
+              ' · 实际标签：', run.browseSelection.tags.join('、') || '无标签', ' · 当时想了解：', run.browseSelection.intent),
+            run.evidence && h('p', { className: 'muted' }, '依据：', evidenceSources[run.evidence.source] || run.evidence.source,
+              run.evidence.source === 'interaction' ? (run.interactionTrigger === 'self_reply' ? ' · 对自己评论的直接回复' : run.interactionTrigger === 'owner_mention' ? ' · 使用者@触发的单条留言' : ' · 普通评论关键词命中') : run.evidence.source === 'comments' ? ' · 已读 ' + run.evidence.commentSample.count + ' 条样本，非完整视频理解' :
+                ' · 覆盖：' + run.evidence.coverage + ' · 文本段数：' + run.evidence.readSegments + '/' + run.evidence.totalSegments),
+            run.interactionTarget && h(React.Fragment, null, h('strong', null, run.interactionTarget.level === 'sub' ? '楼中楼 · 原留言' : '检索普通留言 · 原留言'),
+              h('blockquote', { className: run.interactionTarget.level === 'sub' ? 'sub-comment' : 'root-comment' }, run.interactionTarget.text),
+              h('p', { className: 'muted' }, 'UID ', run.interactionTarget.uid, ' · 评论 ', run.interactionTarget.id)),
+            run.interactionScan && h('details', null, h('summary', null, '评论互动检索结果'), h('p', { className: 'muted' }, run.interactionScan.message),
+              ...(run.interactionScan.matches || []).map(row => h('div', { key: row.id }, h('strong', null, row.level === 'sub' ? '楼中楼留言' : '检索普通留言'),
+                h('blockquote', { className: row.level === 'sub' ? 'sub-comment' : 'root-comment' }, row.text),
+                h('a', { href: row.url, target: '_blank', rel: 'noopener noreferrer' }, '查看原留言')))),
+            run.evidence?.source === 'comments' && h(React.Fragment, null,
+              h('p', { className: 'muted' }, '未播放或分析音频。已读排序：', run.evidence.commentSample.orders.map(order => commentOrders[order]).join('、') || '无',
+                run.evidence.commentSample.failedOrders.length ? '；暂不可读：' + run.evidence.commentSample.failedOrders.map(order => commentOrders[order]).join('、') : ''),
+              run.evidence.comments.length > 0 && h('details', null, h('summary', null, '查看已读评论样本'),
+                ...run.evidence.comments.map(row => h('div', { key: row.id }, h('strong', null, '检索普通留言'), h('blockquote', { className: 'root-comment' }, row.text),
+                  h('a', { href: row.url, target: '_blank', rel: 'noopener noreferrer' }, '查看评论'),
+                  h('span', { className: 'muted' }, ' · ', commentOrders[row.order], ' · ', row.likes, '赞', row.truncated ? ' · 已截短' : ''))))),
+            run.evidence?.processedRanges && h('p', { className: 'muted' }, '音频处理区间（秒）：',
+              run.evidence.processedRanges.map(r => r.from + '–' + Number(r.to).toFixed(1)).join('、')),
+            run.preview && h(React.Fragment, null,
+              h('strong', null, run.evidence?.source === 'comments' ? '评论区概述' : '摘要'), h('p', null, run.preview.summary),
+              h('strong', null, '评价'), h('p', null, run.preview.evaluation),
+              run.preview.should_comment ? commentEditor(run) : h('p', null, '本次不准备评论。'),
+              h('p', null, run.preview.reason), h('p', { className: 'muted' }, '文本依据：', run.preview.evidence_quote)),
+            (run.skipReason || run.error?.message || run.waitReason) &&
+              h('p', null, run.skipReason || run.error?.message || run.waitReason),
+            run.probeResult && h('p', null, run.probeResult),
+            h('p', { className: 'muted' }, run.noteStatus === 'saved' ? '工作区笔记：' + run.notePath : run.noteError || ''),
+            h('div', { className: 'row' },
+              ['preview', 'completed', 'skipped', 'failed', 'interrupted'].includes(run.state) && (deleting === run.id ?
+                h(React.Fragment, null, button('确认删除记录与笔记', 'delete_record', { requestId: run.id }, !!active || installing || !!social?.busy),
+                  h('button', { onClick: () => setDeleting('') }, '保留记录')) :
+                h('button', { disabled: busy || !!active || installing || !!social?.busy, onClick: () => setDeleting(run.id) }, '删除这条记录')),
+              run.noteStatus === 'failed' && button('重试写笔记', 'retry_note', { requestId: run.id }),
+              run.state === 'needs_review' && button('核对原结果', 'reconcile', { requestId: run.id })));
+
       return h('div', { className: 'bili-harness' }, h('style', null, css),
         h('div', { className: 'head' }, h('h2', null, 'B站浏览'),
           h('button', { type: 'button', onClick: () => setTab(binding.phase === 'active' ? 'browse' : 'advanced') },
@@ -1134,10 +1275,7 @@ window.__ModuleLoader__.load({
           budget && h('p', { className: 'muted' }, '当前统计时区：', budget.zone, ' · 下次额度更新：', dateText(budget.end))),
           button('保存浏览设置', 'configure', { config: { ...config, keywords: (config.keywords || []).filter(k => k.trim()) } },
             !!active || installing || !!browsing?.busy, true)),
-          browsing?.recentRounds?.length > 0 && h('details', null, h('summary', null, '最近浏览轮次'),
-            ...browsing.recentRounds.map(round => h('div', { key: round.id }, h('p', null, dateText(round.createdAt), ' · ', round.keyword,
-              round.tagFilter ? ' · TAG' : '', ' · ', roundStates[round.state], ' · 启动 ', round.analysisIds.length, ' 条 · ', round.reason || round.error?.message || '',
-              round.tagSearchStats ? ' · TAG核对' + round.tagSearchStats.checked + '个，匹配' + round.tagSearchStats.matched + '，不匹配' + round.tagSearchStats.mismatched + '，未核实' + round.tagSearchStats.unverified : ''), choiceDetails(round))))),
+        ),
         h('section', { id: 'bili-tab-interaction', hidden: tab !== 'interaction' }, h('h3', null, '评论与@'),
           h('div', { id: 'bili-owner-mention-banner', className: 'setting-group' },
             h('h4', null, '使用者@大肥鱼'),
@@ -1163,42 +1301,7 @@ window.__ModuleLoader__.load({
           inline('comments'),
           comments?.busy && h('p', { className: 'notice' }, '正在处理评论发布或核对，状态会自动更新。'),
           comments?.notice && h('div', { className: 'notice' + (comments.error ? ' error' : '') }, comments.notice, recoveryLink(comments.notice, comments.recoveryBvid)),
-          h('nav', { className: 'subtabs', role: 'tablist', 'aria-label': '评论互动分区' },
-            ...[['published', '已发评论'], ['settings', '互动设置']].map(([value, label]) => h('button', { key: value, type: 'button', role: 'tab',
-              'aria-selected': (interactionPane || 'published') === value, onClick: () => setInteractionPane(value) }, label))),
-          h('p', { className: 'muted' }, '互动结果已统一到「记录」页的互动记录区，自动与手动模式的回复都在那里核对。'),
-          h('div', { id: 'bili-published-comments', hidden: (interactionPane || 'published') !== 'published' },
-            h('h4', null, '已发评论 · 共 ', published?.total || 0, ' 条'),
-            h('p', { className: 'muted' }, '汇总当前账号已确认发送的主动评论、关键词回复与楼中楼接话。平台接收不保证其他账号可见；结果未知的尝试仍在原记录中核对。'),
-            h('label', null, h('span', null, '按视频、BV号或评论内容查找'), h('input', { value: publishedSearch, maxLength: 100,
-              onChange: e => setPublishedSearch(e.target.value), disabled: busy })),
-            h('div', { className: 'row' }, h('button', { disabled: busy, onClick: () => {
-              publishedQuery.current = { ...publishedQuery.current, q: publishedSearch, offset: 0 }; return refresh();
-            } }, '查找已发评论'), h('button', { disabled: busy, onClick: () => {
-              setPublishedSearch(''); publishedQuery.current = { ...publishedQuery.current, q: '', offset: 0 }; return refresh();
-            } }, '显示全部已发评论')),
-            h('div', { className: 'interaction-records' }, ...(published?.rows || []).map(d => h('article', { key: d.id, className: 'private-item', 'data-published-comment': d.id },
-              h('strong', null, d.title || d.bvid), h('p', { className: 'muted' }, d.target ? d.target.level === 'sub' ? '楼中楼接话' : '回复普通留言' : '主动视频评论',
-                ' · ', dateText(d.attemptedAt || d.confirmedAt)),
-              h('blockquote', { className: 'self-comment' }, d.text || '本地文案已清理。'),
-              h('div', { className: 'row' }, h('a', { href: 'https://www.bilibili.com/video/' + d.bvid + '/#reply' + d.receipt, target: '_blank', rel: 'noopener noreferrer' }, '打开已发评论'),
-                h('button', { disabled: busy, onClick: () => {
-                  historyQuery.current = { q: d.bvid, kind: 'all', state: 'all', source: 'all', from: '', to: '' };
-                  setHistoryFilters(historyQuery.current); page.current = 0; setOffset(0); setTab('history'); return act('status');
-                } }, '查看这条评论的记录')))),
-              !published?.rows?.length && h('p', { className: 'dm-empty' }, '暂无匹配的已确认发送评论。')),
-            published && h('div', { className: 'row' }, h('button', { disabled: busy || !published.offset, onClick: () => {
-              publishedQuery.current = { ...publishedQuery.current, offset: Math.max(0, published.offset - published.pageSize) }; return refresh();
-            } }, '上一页已发评论'), h('span', { className: 'muted' }, rangeText(published.offset, published.pageSize, published.total)),
-              h('button', { disabled: busy || published.offset + published.pageSize >= published.total, onClick: () => {
-                publishedQuery.current = { ...publishedQuery.current, offset: published.offset + published.pageSize }; return refresh();
-              } }, '下一页已发评论')),
-            recentUnconfirmedComments.length > 0 && h('div', { className: 'setting-group' }, h('h4', null, '近期未确认的发送尝试'),
-              h('p', { className: 'muted' }, '结果不明或失败的尝试不计入已发评论；可只读核对，绝不自动重发。'),
-              ...recentUnconfirmedComments.map(d => h('article', { key: d.id, className: 'private-item' },
-                h('strong', null, d.title || d.bvid), h('p', { className: 'muted' }, commentStates[d.state] || d.state, ' · ', dateText(d.attemptedAt)),
-                publication(d))))),
-          h('div', { id: 'bili-interaction-settings', hidden: (interactionPane || 'published') !== 'settings' },
+          h('div', { id: 'bili-interaction-settings' },
             h('nav', { className: 'subtabs', role: 'tablist', 'aria-label': '互动设置分类' },
               ...[['send', '发送与隐私'], ['replies', '接话规则'], ['mentions', '@对象']].map(([id, label]) =>
                 h('button', { key: id, role: 'tab', 'aria-selected': interactionSettingsPane === id,
@@ -1358,10 +1461,22 @@ window.__ModuleLoader__.load({
               button('核对原对话结果', 'reconcile', { requestId: active.id }, active.state === 'reading'),
               button('解除本地等待', 'release', { requestId: active.id }, active.state !== 'awaiting_model' || binding.running)),
             h('p', { className: 'muted' }, '解除等待只适用于原对话已停止的任务，之后仍可核对原结果。'))),
-        h('section', { id: 'bili-tab-history', hidden: tab !== 'history' }, h('h3', null, '浏览记录'),
-          h('details', { id: 'bili-history-interactions', open: true },
-            h('summary', null, h('strong', null, '互动记录'), interactionRecords ? ' · ' + interactionRecords.total + ' 条' : ''),
-            h('p', { className: 'muted' }, '关键词回复、楼中楼接话与使用者@触发的回复都在这里。自动与手动模式都会显示；被打回的草稿见下方“待人工处理的外发”。'),
+        h('section', { id: 'bili-tab-history', hidden: tab !== 'history' }, h('h3', null, '记录'),
+          h('nav', { className: 'subtabs record-tabs', role: 'tablist', 'aria-label': '记录分区' },
+            ...[['browse', '浏览记录'], ['interactions', '互动记录'], ['published', '已发评论'], ['pending', '待处理']].map(([id, label]) =>
+              h('button', { key: id, role: 'tab', 'aria-selected': recordPane === id, 'aria-controls': id === 'browse' ? 'bili-history-browse' : id === 'interactions' ? 'bili-history-interactions' : id === 'published' ? 'bili-published-comments' : 'bili-history-pending',
+                onClick: () => setRecordPane(id) }, label))),
+          status.history?.pending?.manual > 0 && h('div', { className: 'record-attention', role: 'status' },
+            h('span', null, '有 ', status.history.pending.manual, ' 条需要人工处理'),
+            h('button', { type: 'button', disabled: busy, onClick: () => changePendingView({ filter: 'manual', offset: 0 }) }, '查看待处理条目')),
+          status.record && h('div', { id: 'bili-focused-record', className: 'record-focus' },
+            h('div', { className: 'row' }, h('strong', null, '选中的记录'),
+              h('button', { type: 'button', onClick: () => { focusedRecord.current = ''; setStatus(before => ({ ...before, record: null })); } }, '关闭详情')),
+            renderRunDetails(status.record, true)),
+          renderPublished(),
+          h('div', { id: 'bili-history-interactions', className: 'record-panel', hidden: recordPane !== 'interactions' },
+            h('h4', null, '互动记录 · ', interactionRecords?.total || 0, ' 条'),
+            h('p', { className: 'muted' }, '关键词回复、楼中楼接话与使用者@触发的回复都在这里。自动与手动模式都会显示；需人工处理的草稿见“待处理”。'),
             h('nav', { className: 'subtabs', role: 'tablist', 'aria-label': '互动记录类型' },
               ...[['all', '全部'], ['top', '普通留言'], ['sub', '楼中楼']].map(([value, label]) => h('button', { type: 'button', key: value,
                 role: 'tab', 'aria-selected': (interactionRecords?.level || 'all') === value, disabled: busy,
@@ -1377,7 +1492,7 @@ window.__ModuleLoader__.load({
                 r.reason && h('p', { className: 'muted' }, r.reason),
                 h('div', { className: 'row' },
                   h('a', { href: 'https://www.bilibili.com/video/' + r.bvid + '/#reply' + r.target?.id, target: '_blank', rel: 'noopener noreferrer' }, '查看原留言'),
-                  h('button', { type: 'button', disabled: busy, onClick: () => setTab('interaction') }, '去互动设置')))),
+                  h('button', { type: 'button', disabled: busy, onClick: () => openRecord(r.id) }, '查看评价与发送详情')))),
               !interactionRecords?.rows?.length && h('p', { className: 'dm-empty' }, '暂无此类互动记录。')),
             interactionRecords && h('div', { className: 'row' },
               h('button', { disabled: busy || !interactionRecords.offset, onClick: () => changeInteractionView({ offset: Math.max(0, interactionRecords.offset - interactionRecords.pageSize) }) }, '上一页互动'),
@@ -1385,39 +1500,18 @@ window.__ModuleLoader__.load({
               h('button', { disabled: busy || interactionRecords.offset + interactionRecords.pageSize >= interactionRecords.total,
                 onClick: () => changeInteractionView({ offset: interactionRecords.offset + interactionRecords.pageSize }) }, '下一页互动')),
             status.interactions?.notice && h('p', { className: 'notice' + (status.interactions.error ? ' error' : '') }, status.interactions.notice)),
-          (() => {
-            const pend = status.history?.pending;
-            if (!pend) return null;
-            if (!pend.total) return h('p', { className: 'muted' }, '暂无被打回或未发出的评论与私信。');
-            return h('details', { open: true },
-              h('summary', null, h('strong', null, '待人工处理的外发：'), pend.total, ' 条',
-                pend.manual ? h('span', { className: 'pending-badge' }, ' · 需人工确认 ', pend.manual, ' 条') : ''),
-              h('p', { className: 'muted' }, '评论 ', pend.comments, ' 条 · 私信 ', pend.messages,
-                ' 条。未发出或已被拦下的内容集中在这里，不会自动重发；确认后请到对应页面处理。'),
-              ...pend.items.map(item => h('details', { key: item.kind + ':' + item.id },
-                h('summary', null, h('span', null,
-                  h('span', { className: 'kind-badge' + (item.kind === 'dm' ? ' sub' : '') }, item.kind === 'dm' ? '私信' : '评论'),
-                  item.text || item.received || '（无正文）',
-                  h('span', { className: 'muted record-meta' }, item.state, item.at ? ' · ' + dateText(item.at) : '',
-                    item.manual ? ' · 需人工' : ''))),
-                h('div', null,
-                  item.kind === 'comment' && item.targetText && h('p', { className: 'muted' }, '原留言：', item.targetText),
-                  item.kind === 'dm' && item.received && h('p', { className: 'muted' }, '收到的私信：', item.received),
-                  h('p', { className: 'muted' }, '原因：', item.reason || '未注明'),
-                  h('div', { className: 'row' },
-                    item.url && h('a', { href: item.url, target: '_blank', rel: 'noopener noreferrer' }, item.kind === 'dm' ? '打开对方主页' : '打开视频'),
-                    item.kind === 'comment' && h('button', { disabled: busy, onClick: () => {
-                      historyQuery.current = { kind: 'all', state: 'all', source: 'all', q: item.bvid || '' };
-                      setHistoryFilters(historyQuery.current); page.current = 0; setOffset(0); setTab('history'); act('status');
-                    } }, '按这个BV筛选记录'),
-                    h('button', { disabled: busy, onClick: () => setTab(item.kind === 'dm' ? 'people' : 'interaction') },
-                      item.kind === 'dm' ? '去私信页处理' : '去互动页处理'))))));
-          })(),
+          renderPending(),
+          h('div', { id: 'bili-history-browse', className: 'record-panel', hidden: recordPane !== 'browse' },
+            h('h4', null, '浏览记录'),
+browsing?.recentRounds?.length > 0 && h('details', null, h('summary', null, '最近浏览轮次'),
+            ...browsing.recentRounds.map(round => h('div', { key: round.id }, h('p', null, dateText(round.createdAt), ' · ', round.keyword,
+              round.tagFilter ? ' · TAG' : '', ' · ', roundStates[round.state], ' · 启动 ', round.analysisIds.length, ' 条 · ', round.reason || round.error?.message || '',
+              round.tagSearchStats ? ' · TAG核对' + round.tagSearchStats.checked + '个，匹配' + round.tagSearchStats.matched + '，不匹配' + round.tagSearchStats.mismatched + '，未核实' + round.tagSearchStats.unverified : ''), choiceDetails(round)))),
           h('details', null, h('summary', null, '筛选与批量清理'),
             h('label', null, h('span', null, '搜索标题、BV或摘要'), h('input', { value: historyFilters?.q || '', maxLength: 100, disabled: busy,
               onChange: e => setHistoryFilters({ ...historyFilters, q: e.target.value }) })),
             h('div', { className: 'two' }, ...[
-              ['kind', '记录类型', [['all', '全部类型'], ['video', '视频'], ['interaction', '评论互动'], ['probe', '接入检查']]],
+              ['kind', '记录类型', [['video', '视频'], ['probe', '接入检查']]],
               ['source', '理解来源', [['all', '全部来源'], ['subtitle', '字幕'], ['asr', '讲话转写'], ['frames', '画面抽帧'], ['comments', '评论区概述'], ['interaction', '关键词留言']]],
               ['state', '记录状态', [['all', '全部状态'], ['preview', '评价已完成'], ['skipped', '已跳过'], ['failed', '失败'], ['interrupted', '中断'], ['completed', '检查完成'], ['needs_review', '待核对']]],
             ].map(([key, label, values]) => h('label', { key }, h('span', null, label), h('select', { value: historyFilters?.[key] || 'all', disabled: busy,
@@ -1426,7 +1520,7 @@ window.__ModuleLoader__.load({
                 h('input', { type: 'date', value: historyFilters?.[key] || '', disabled: busy, onChange: e => setHistoryFilters({ ...historyFilters, [key]: e.target.value }) })))),
             h('div', { className: 'row' }, h('button', { disabled: busy, onClick: () => {
               historyQuery.current = { ...historyFilters }; page.current = 0; setOffset(0); setHistoryDelete(null); act('status'); } }, '应用筛选'),
-              h('button', { disabled: busy, onClick: () => { historyQuery.current = {}; setHistoryFilters({}); page.current = 0; setOffset(0); setHistoryDelete(null); act('status'); } }, '清除筛选'),
+              h('button', { disabled: busy, onClick: () => { historyQuery.current = { kind: 'video' }; setHistoryFilters({ kind: 'video' }); page.current = 0; setOffset(0); setHistoryDelete(null); act('status'); } }, '清除筛选'),
               button('预览本次批量清理', 'history_preview_delete', { filters: historyQuery.current }, sendingBlocked)),
             historyDelete && h('div', { className: 'notice' }, h('p', null, '即将清理 ', historyDelete.count, ' 条已结束记录。', historyDelete.more ? '其余记录留待下一批。' : ''),
               ...historyDelete.sample.map((r, i) => h('p', { key: i }, r.title, ' · ', dateText(r.createdAt))),
@@ -1454,63 +1548,13 @@ window.__ModuleLoader__.load({
           status.covers?.message && h('p', { className: 'muted' }, status.covers.message),
           status.covers?.error && h('p', { className: 'notice error' }, status.covers.error.message),
           status.runs.length === 0 && h('p', { className: 'muted' }, '暂无记录。完成一次读取后会在这里显示。'),
-          ...status.runs.map(run => h('details', { key: run.id },
-            h('summary', null, h('span', { className: 'record-top' },
-              run.kind === 'video' && (run.evidence?.cover ? h('img', { className: 'cover', src: run.evidence.cover,
-                alt: '视频封面', loading: 'lazy', referrerPolicy: 'no-referrer',
-                onError: e => { e.currentTarget.alt = '封面暂不可用'; } }) : h('span', { className: 'cover cover-placeholder' }, '封面暂缺')),
-              h('span', null, h('strong', null, run.evidence?.title || run.bvid || '模型接入检查'),
-                h('span', { className: 'muted record-meta' }, states[run.state] || run.state, ' · ', dateText(run.createdAt))))),
-            ['video', 'interaction'].includes(run.kind) && h('a', { href: 'https://www.bilibili.com/video/' + run.bvid + '/', target: '_blank', rel: 'noopener noreferrer' }, '打开视频'),
-            h('p', { className: 'muted' }, dateText(run.createdAt), ' · ', h('code', null, run.id)),
-            run.kind === 'video' && h('p', { className: 'muted' }, '来源：',
-              ({ manual: '手动读取', immediate: '立即运行', scheduled: '定时浏览', interaction: '评论互动' })[run.source || 'manual'],
-              run.roundId ? ' · 轮次 ' + run.roundId : ''),
-            run.browseSelection?.mode === 'tag' && h('p', { className: 'muted' }, 'TAG入口：', run.browseSelection.query,
-              ' · 实际标签：', run.browseSelection.tags.map(t => t.name).join('、'), ' · 核对时间：', dateText(run.browseSelection.checkedAt)),
-            run.browseSelection?.mode === 'autonomous' && h('p', { className: 'muted' }, '自主选片：', run.browseSelection.reason,
-              ' · 实际标签：', run.browseSelection.tags.join('、') || '无标签', ' · 当时想了解：', run.browseSelection.intent),
-            run.evidence && h('p', { className: 'muted' }, '依据：', evidenceSources[run.evidence.source] || run.evidence.source,
-              run.evidence.source === 'interaction' ? (run.interactionTrigger === 'self_reply' ? ' · 对自己评论的直接回复' : run.interactionTrigger === 'owner_mention' ? ' · 使用者@触发的单条留言' : ' · 普通评论关键词命中') : run.evidence.source === 'comments' ? ' · 已读 ' + run.evidence.commentSample.count + ' 条样本，非完整视频理解' :
-                ' · 覆盖：' + run.evidence.coverage + ' · 文本段数：' + run.evidence.readSegments + '/' + run.evidence.totalSegments),
-            run.interactionTarget && h(React.Fragment, null, h('strong', null, run.interactionTarget.level === 'sub' ? '楼中楼 · 原留言' : '检索普通留言 · 原留言'),
-              h('blockquote', { className: run.interactionTarget.level === 'sub' ? 'sub-comment' : 'root-comment' }, run.interactionTarget.text),
-              h('p', { className: 'muted' }, 'UID ', run.interactionTarget.uid, ' · 评论 ', run.interactionTarget.id)),
-            run.interactionScan && h('details', null, h('summary', null, '评论互动检索结果'), h('p', { className: 'muted' }, run.interactionScan.message),
-              ...(run.interactionScan.matches || []).map(row => h('div', { key: row.id }, h('strong', null, row.level === 'sub' ? '楼中楼留言' : '检索普通留言'),
-                h('blockquote', { className: row.level === 'sub' ? 'sub-comment' : 'root-comment' }, row.text),
-                h('a', { href: row.url, target: '_blank', rel: 'noopener noreferrer' }, '查看原留言')))),
-            run.evidence?.source === 'comments' && h(React.Fragment, null,
-              h('p', { className: 'muted' }, '未播放或分析音频。已读排序：', run.evidence.commentSample.orders.map(order => commentOrders[order]).join('、') || '无',
-                run.evidence.commentSample.failedOrders.length ? '；暂不可读：' + run.evidence.commentSample.failedOrders.map(order => commentOrders[order]).join('、') : ''),
-              run.evidence.comments.length > 0 && h('details', null, h('summary', null, '查看已读评论样本'),
-                ...run.evidence.comments.map(row => h('div', { key: row.id }, h('strong', null, '检索普通留言'), h('blockquote', { className: 'root-comment' }, row.text),
-                  h('a', { href: row.url, target: '_blank', rel: 'noopener noreferrer' }, '查看评论'),
-                  h('span', { className: 'muted' }, ' · ', commentOrders[row.order], ' · ', row.likes, '赞', row.truncated ? ' · 已截短' : ''))))),
-            run.evidence?.processedRanges && h('p', { className: 'muted' }, '音频处理区间（秒）：',
-              run.evidence.processedRanges.map(r => r.from + '–' + Number(r.to).toFixed(1)).join('、')),
-            run.preview && h(React.Fragment, null,
-              h('strong', null, run.evidence?.source === 'comments' ? '评论区概述' : '摘要'), h('p', null, run.preview.summary),
-              h('strong', null, '评价'), h('p', null, run.preview.evaluation),
-              run.preview.should_comment ? commentEditor(run) : h('p', null, '本次不准备评论。'),
-              h('p', null, run.preview.reason), h('p', { className: 'muted' }, '文本依据：', run.preview.evidence_quote)),
-            (run.skipReason || run.error?.message || run.waitReason) &&
-              h('p', null, run.skipReason || run.error?.message || run.waitReason),
-            run.probeResult && h('p', null, run.probeResult),
-            h('p', { className: 'muted' }, run.noteStatus === 'saved' ? '工作区笔记：' + run.notePath : run.noteError || ''),
-            h('div', { className: 'row' },
-              ['preview', 'completed', 'skipped', 'failed', 'interrupted'].includes(run.state) && (deleting === run.id ?
-                h(React.Fragment, null, button('确认删除记录与笔记', 'delete_record', { requestId: run.id }, !!active || installing || !!social?.busy),
-                  h('button', { onClick: () => setDeleting('') }, '保留记录')) :
-                h('button', { disabled: busy || !!active || installing || !!social?.busy, onClick: () => setDeleting(run.id) }, '删除这条记录')),
-              run.noteStatus === 'failed' && button('重试写笔记', 'retry_note', { requestId: run.id }),
-              run.state === 'needs_review' && button('核对原结果', 'reconcile', { requestId: run.id })))),
+          ...status.runs.map(run => renderRunDetails(run)),
           h('div', { className: 'row' },
             h('button', { disabled: busy || offset === 0, onClick: () => {
               page.current = Math.max(0, offset - pageSize); setOffset(page.current); act('status'); } }, '上一页'),
             h('span', { className: 'muted' }, status.total ? (offset + 1) + '—' + Math.min(offset + pageSize, status.total) : '0'),
             h('button', { disabled: busy || offset + pageSize >= status.total, onClick: () => {
-              page.current = offset + pageSize; setOffset(page.current); act('status'); } }, '下一页'))),
+              page.current = offset + pageSize; setOffset(page.current); act('status'); } }, '下一页')))),
         (tab === 'advanced' || (tab === 'persona' && ['base', 'settings'].includes(personaView))) && h('div', { className: 'save' },
             button(tab === 'persona' && personaView === 'settings' ? '保存学习设置' : tab === 'persona' && personaView === 'base' ? '保存基础人设' : '保存设置', 'configure', {
               config: tab === 'persona' && personaView === 'base' ? Object.fromEntries(['persona', 'maxContentChars', 'commentMaxChars',

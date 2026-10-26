@@ -1,4 +1,4 @@
-import { mkdirSync, existsSync, readdirSync, lstatSync, readFileSync, writeFileSync, copyFileSync, realpathSync } from 'node:fs';
+import { mkdirSync, existsSync, readdirSync, lstatSync, readFileSync, writeFileSync, realpathSync } from 'node:fs';
 import { join, resolve, relative } from 'node:path';
 import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
@@ -22,12 +22,12 @@ const forbidden = [/(?:gh[pousr]_[A-Za-z0-9]{24,}|github_pat_[A-Za-z0-9_]{24,}|s
 const manifest = [];
 for (const file of selected.sort()) {
   const path = join(root, file); assert.ok(lstatSync(path).isFile() && !lstatSync(path).isSymbolicLink(), 'Only ordinary source files may be exported');
-  const content = readFileSync(path), text = content.toString('utf8');
+  const text = readFileSync(path, 'utf8').replaceAll('\r\n', '\n'), content = Buffer.from(text);
   assert.ok(!forbidden.some(re => re.test(text)), 'Private marker found in ' + file);
   assert.ok(!/(?:^|\/)(?:\.git|\.workspace|\.runtime|node_modules|__pycache__|task-reports)(?:\/|$)|\.sqlite|credential\.json|\.log$/i.test(file), 'Private filename found');
   manifest.push({ path: file, bytes: content.length, sha256: createHash('sha256').update(content).digest('hex') });
 }
 mkdirSync(output, { recursive: true });
-for (const file of selected) { const target = join(output, file); mkdirSync(resolve(target, '..'), { recursive: true }); copyFileSync(join(root, file), target); }
+for (const file of selected) { const target = join(output, file); mkdirSync(resolve(target, '..'), { recursive: true }); writeFileSync(target, readFileSync(join(root, file), 'utf8').replaceAll('\r\n', '\n')); }
 writeFileSync(join(output, 'SOURCE-MANIFEST.json'), JSON.stringify({ version, files: manifest }, null, 2) + '\n');
 console.log(JSON.stringify({ output: relative(root, output), files: manifest.length, privateMarkers: false, gitHistoryIncluded: false }));

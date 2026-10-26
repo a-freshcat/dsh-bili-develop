@@ -109,6 +109,7 @@ test('diagnostics is local and omits all account, model text, persona and path d
 
 test('record page aggregates withheld comments and DMs so nothing waits in a separate tab', async t => {
   const f = await setup(t), binding = f.store.get('binding');
+  f.controller.social.setAccount('123');
   // A draft that the owner withheld, and a private reply the model failed to finish.
   f.store.db.prepare('INSERT INTO comment_drafts VALUES(?,?,?,?,?)').run('withheld-comment', '123', BV, 'draft',
     JSON.stringify({ id: 'withheld-comment', kind: 'video', accountUid: '123', bvid: BV, text: '被拦下的评论正文',

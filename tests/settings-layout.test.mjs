@@ -47,7 +47,9 @@ test('interaction UI keeps limits out of the feed, exposes them in reply setting
   ui.button(tree, '记录').props.onClick(); tree = ui.render();
   const history = flatten(tree).find(n => n?.props?.id === 'bili-history-interactions');
   assert.ok(history, 'record tab must host the interaction record section');
-  assert.equal(history.props.open, true);
+  assert.equal(history.type, 'div');
+  ui.button(tree, '互动记录').props.onClick(); tree = ui.render();
+  assert.equal(flatten(tree).find(n => n?.props?.id === 'bili-history-interactions').props.hidden, false);
   assert.equal(flatten(tree).filter(n => n?.props?.className === 'interaction-result').length, 2);
   const nav = flatten(tree).find(n => n?.props?.['aria-label'] === '互动记录类型');
   await ui.button(nav, '楼中楼 1').props.onClick(); await ui.flush(); tree = ui.render();
@@ -59,9 +61,8 @@ test('interaction UI keeps limits out of the feed, exposes them in reply setting
   const panel = flatten(tree).find(n => n?.props?.id === 'bili-tab-interaction');
   assert.ok(!flatten(panel).some(n => n?.props?.className === 'interaction-result'));
   assert.ok(!flatten(panel).some(n => n?.props?.className === 'interaction-policy'));
-  assert.equal(flatten(tree).find(n => n?.props?.id === 'bili-published-comments').props.hidden, false);
-  const sections = flatten(tree).find(n => n?.props?.['aria-label'] === '评论互动分区'); ui.button(sections, '互动设置').props.onClick(); tree = ui.render();
-  assert.equal(flatten(tree).find(n => n?.props?.id === 'bili-interaction-settings').props.hidden, false);
+  assert.ok(!flatten(panel).some(n => n?.props?.id === 'bili-published-comments'));
+  assert.ok(flatten(panel).some(n => n?.props?.id === 'bili-interaction-settings'));
   ui.button(tree, '接话规则').props.onClick(); tree = ui.render();
   const replySettings = flatten(tree).find(n => n?.props?.id === 'bili-interaction-settings-replies');
   assert.equal(replySettings.props.hidden, false);

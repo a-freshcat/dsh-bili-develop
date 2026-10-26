@@ -17,5 +17,5 @@
               - id: command-compact
                 name: '@deepseek-ai/dsh-command-compact'
     - id: bilibili-harness
-      name: dsh-bilibili-harness
+      name: dsh-bili-develop
       config: {}

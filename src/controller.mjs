@@ -62,7 +62,7 @@ export class Controller {
     this.feedback = new Feedback(this);
     this.relationships = new Relationships(this);
   }
-  async status({ offset = 0, contactsOffset = 0, contactQuery = '', privateView = {}, interactionView = {}, publishedView = {}, learningOffset = 0, learningView = {}, weeklyOffset = 0, filters = {} } = {}) {
+  async status({ offset = 0, contactsOffset = 0, contactQuery = '', privateView = {}, interactionView = {}, publishedView = {}, pendingView = {}, recordId = '', learningOffset = 0, learningView = {}, weeklyOffset = 0, filters = {} } = {}) {
     assert(Number.isInteger(offset) && offset >= 0 && offset <= 1000000, 'INVALID_PAGE', '分页参数无效。');
     return {
       version, mode: this.store.config().commentMode === 'preview' ? 'preview_only' : 'controlled_comments',
@@ -70,7 +70,7 @@ export class Controller {
       ownerProfile: this.store.get('ownerProfile')?.uid === this.store.config().ownerAccountUid ? this.store.get('ownerProfile') : null,
       workspaces: this.host.listWorkspaces(), active: summarizeRun(this.store.active()),
       runs: this.store.list(HISTORY_PAGE_SIZE, offset, filters).map(summarizeRun), total: this.store.count(filters), offset, pageSize: HISTORY_PAGE_SIZE,
-      history: this.history.status(filters),
+      history: this.history.status(filters, pendingView), record: summarizeRun(this.history.detail(recordId)),
       privacy: this.privacy.context(),
       feedback: this.feedback.status(),
       relationships: this.relationships.status(),
