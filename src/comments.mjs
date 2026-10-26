@@ -132,6 +132,8 @@ export class Comments {
   assertDraft(d, auto = false, quota = true) {
     const config = this.store.config(), run = d && this.store.run(d.id);
     assert(d?.state === 'draft' && ['video', 'interaction'].includes(run?.kind) && run.state === 'preview', 'COMMENT_DRAFT', '草稿不在可发送状态。', 409);
+    assert(typeof d.text === 'string' && d.text.replace(/[\s\p{Cf}\p{Cc}]/gu, '').length > 0,
+      'COMMENT_EMPTY', '评论正文为空或只有不可见字符，未提交发送；请重新生成草稿。');
     this.c.learning.checkOutput(d.text, d.accountUid);
     this.c.privacy.check(d.text, { mentions: d.mentions });
     if (run.interactionTarget) {
@@ -285,8 +287,10 @@ export class Comments {
     const c = this.c;
     if (c.closed || this.busy || this.paused || c.scheduler.paused || c.now() < this.store.get('commentRetryAfter', 0) || c.store.config().commentMode !== 'auto' ||
       !inActivity(c.now(), c.store.config()) || c.store.active() || c.scheduler.busy || c.scheduler.starting || c.social.busy || c.weekly?.busy || c.installing || c.metadataBusy) return;
-    const candidates = this.db.prepare("SELECT data FROM comment_drafts WHERE state='draft' AND json_extract(data,'$.autoEligible')=1 ORDER BY rowid LIMIT 50")
-      .all().map(row => JSON.parse(row.data));
+    const account = c.social.account || this.store.get('commentAccount', ''), session = this.store.get('binding')?.sessionId;
+    if (!account || !session) return;
+    const candidates = this.db.prepare("SELECT d.data FROM comment_drafts d JOIN runs r ON r.id=d.id WHERE d.account_uid=? AND json_extract(r.data,'$.sessionId')=? AND d.state='draft' AND json_extract(d.data,'$.autoEligible')=1 ORDER BY d.rowid LIMIT 50")
+      .all(account, session).map(row => JSON.parse(row.data));
     if (!candidates.length) return;
     this.background(async () => {
       for (const d of candidates) {
@@ -294,11 +298,11 @@ export class Comments {
         try { await this.send(d.id, d.revision, true); return; }
         catch (error) {
           if (c.closed) return;
-          const held = ['COMMENT_STALE', 'MENTION_CHANGED', 'MENTIONS_DISABLED', 'MENTION_TARGET', 'COMMENT_DUPLICATE', 'COMMENT_ROUND_LIMIT', 'INTERACTION_DISABLED', 'INTERACTION_LIMIT'].includes(error.code);
+          const held = ['COMMENT_EMPTY', 'COMMENT_STALE', 'MENTION_CHANGED', 'MENTIONS_DISABLED', 'MENTION_TARGET', 'COMMENT_DUPLICATE', 'COMMENT_ROUND_LIMIT', 'INTERACTION_DISABLED', 'INTERACTION_LIMIT'].includes(error.code);
           this.save({ ...this.get(d.id), ...(held ? { autoEligible: false } : {}), reason: errorView(error).message });
           this.notice = errorView(error).message;
           if (['COMMENT_LIMIT', 'COMMENT_COOLDOWN'].includes(error.code)) return;
-          if (!['COMMENT_AUTO', 'COMMENT_STALE', 'MENTION_CHANGED', 'MENTIONS_DISABLED', 'MENTION_TARGET', 'MENTION_LIMIT', 'MENTION_COOLDOWN', 'COMMENT_DUPLICATE', 'COMMENT_REPEAT', 'COMMENT_ROUND_LIMIT', 'INTERACTION_DISABLED', 'INTERACTION_LIMIT'].includes(error.code)) {
+          if (!['COMMENT_EMPTY', 'COMMENT_AUTO', 'COMMENT_STALE', 'MENTION_CHANGED', 'MENTIONS_DISABLED', 'MENTION_TARGET', 'MENTION_LIMIT', 'MENTION_COOLDOWN', 'COMMENT_DUPLICATE', 'COMMENT_REPEAT', 'COMMENT_ROUND_LIMIT', 'INTERACTION_DISABLED', 'INTERACTION_LIMIT'].includes(error.code)) {
             this.store.set('commentRetryAfter', c.now() + 60000); return;
           }
         }

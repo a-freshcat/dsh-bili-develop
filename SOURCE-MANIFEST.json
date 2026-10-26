@@ -1,5 +1,5 @@
 {
-  "version": "0.1.7",
+  "version": "0.1.8",
   "files": [
     {
       "path": ".gitignore",
@@ -8,8 +8,8 @@
     },
     {
       "path": "CHANGELOG.md",
-      "bytes": 15484,
-      "sha256": "e62651fb74e1aa32e5d0c8c22ce1d1c9c1090d38a264bc32186592e631f1579e"
+      "bytes": 16767,
+      "sha256": "6531e1cefd1eb3f5bb9d1fba4266e4af656a43210bc26eadc12030eceb89f6d2"
     },
     {
       "path": "LICENSE",
@@ -18,8 +18,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 23093,
-      "sha256": "730225503cab0dd6cbb467f4943adbf4e755d1413b2743ea10903617243525d1"
+      "bytes": 23152,
+      "sha256": "00d6853cbb02b972b792ddd1b5a33417b43402bf99898c0f8b81b40417259aa2"
     },
     {
       "path": "SECURITY.md",
@@ -33,13 +33,13 @@
     },
     {
       "path": "USER_GUIDE.md",
-      "bytes": 23115,
-      "sha256": "62ffb245d8dd543443ba096cec488d15aed6fa3738846033b0605a1edc39af2d"
+      "bytes": 23142,
+      "sha256": "52ddab60d4d344f6dc6ab5d251aaeff6e665b7c2afacb92246da55662b8500e2"
     },
     {
       "path": "client.js",
-      "bytes": 173583,
-      "sha256": "86f1c85e61c0e926776bd8685452777f5f1945ced38fd47b9995fd8124bf9e8c"
+      "bytes": 173853,
+      "sha256": "50e9ef569b156cf02e891f8d9d85fb7acfd86448a86b5656336f0db888c4c045"
     },
     {
       "path": "cordis.patch.yml",
@@ -69,7 +69,7 @@
     {
       "path": "package.json",
       "bytes": 1572,
-      "sha256": "691143b0b5be79266440a3bf4f0fb77098aeaf659a6f0460319a824d7585750c"
+      "sha256": "619af213b612745b5974e213c3e4278040963719378502b79a14bba175de3c8e"
     },
     {
       "path": "python/audio.py",
@@ -193,8 +193,8 @@
     },
     {
       "path": "src/comments.mjs",
-      "bytes": 26791,
-      "sha256": "88c5bc874800c2ae44a83b493f9fdba29922fa42982f94a7db5a84388f27c354"
+      "bytes": 27310,
+      "sha256": "08ce88eb687f96418f773b7d40d8e928d8b3e17ddedfee5858852e795cd382b3"
     },
     {
       "path": "src/community.mjs",
@@ -208,13 +208,13 @@
     },
     {
       "path": "src/controller.mjs",
-      "bytes": 44633,
-      "sha256": "403781b30205ff867f102eea9f18cad24431d4c2d5cda044b67127c99b2d6fca"
+      "bytes": 45548,
+      "sha256": "9db3604afcf4297093d47b308165cdc7b1eb1277870ba0d3045738f7598b8ccf"
     },
     {
       "path": "src/decision.mjs",
-      "bytes": 24814,
-      "sha256": "66278fe83f899a84d7ec12a24eac6d9df7cc83fbc4f16e90ae053922ed2f051e"
+      "bytes": 25536,
+      "sha256": "6b60c5eec2b2e81ab43b6fd4747334e19467839af887783586772bc37bedb807"
     },
     {
       "path": "src/dependencies.mjs",
@@ -253,8 +253,8 @@
     },
     {
       "path": "src/interactions.mjs",
-      "bytes": 19081,
-      "sha256": "f3bdcefc167e2803b41a07a7c78d410e52b3f1facf5f48df7b1a18dfbfc49750"
+      "bytes": 19398,
+      "sha256": "e6307f08c4bed105225d36cb3fb5f78b08dfd41064f553c6e49e4d59b84470b7"
     },
     {
       "path": "src/knowledge-packs.mjs",
@@ -278,8 +278,8 @@
     },
     {
       "path": "src/notebook.mjs",
-      "bytes": 10280,
-      "sha256": "a0764b16fcace967502ff0febbaf632de4f669b11fb9d22cbd83f8c8e0de4f8c"
+      "bytes": 10430,
+      "sha256": "52777e85b83a437a0856a9cd1c9e328eba87a4ad2ef4de64d9247c4fa1301ed5"
     },
     {
       "path": "src/owner-mentions.mjs",
@@ -372,6 +372,11 @@
       "sha256": "4470c7c6fa3b806b3b0c9a6eb94c53d8def9a051d40d8c172bb19743f5e6d18a"
     },
     {
+      "path": "tests/comment-empty-results.test.mjs",
+      "bytes": 4889,
+      "sha256": "61b93ef651da4e1f1d2f096854898c33edbfeb300dcfc12bf1e8102ecc447b12"
+    },
+    {
       "path": "tests/comments.test.mjs",
       "bytes": 21839,
       "sha256": "0ea4aeeca585a1b27c6f6c45d1cc7ae00353a165f049ab27ae8c2c9577072791"
@@ -403,8 +408,8 @@
     },
     {
       "path": "tests/decision.test.mjs",
-      "bytes": 3021,
-      "sha256": "9e647632e2bcd9bfa7002cd7558893d4fc10d7c8cb1664ad5575422f9b6a07a2"
+      "bytes": 3740,
+      "sha256": "60bfc74eaf0e7192117ed5b6500dd7c647d5f77dfce827a3ab8e7c0fa03107ca"
     },
     {
       "path": "tests/delete-record.test.mjs",
@@ -478,8 +483,13 @@
     },
     {
       "path": "tests/mention-adapter.test.mjs",
-      "bytes": 2251,
-      "sha256": "3af274b3df13b9d8c01aac78a6b0554ec4d86d0453dd183a720496cce43085b4"
+      "bytes": 2967,
+      "sha256": "d809f5e56e64004a41bc6ba880425590437177fa49a38b7b4b8befe4e0fd75e3"
+    },
+    {
+      "path": "tests/mixed-video.test.mjs",
+      "bytes": 2055,
+      "sha256": "aad981b4270457cb2d815011f64f644af99bfe7e301d3d49baec2672889dcb7d"
     },
     {
       "path": "tests/model-setup.test.mjs",
@@ -493,8 +503,8 @@
     },
     {
       "path": "tests/owner-mention-video.test.mjs",
-      "bytes": 5839,
-      "sha256": "1231a3ab063bd805f1a1a2108332d22a6a1f305350e53c06283a807040de1876"
+      "bytes": 6154,
+      "sha256": "04116f67846df7b2dcae724ec54a2978deaac36aa6687a6b92791614be0ecbd4"
     },
     {
       "path": "tests/owner-mentions.test.mjs",

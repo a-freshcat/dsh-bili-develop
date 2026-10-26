@@ -1,8 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { bvidOf, configOf, previewPrompt, parsePreview, resultForRequest } from '../src/decision.mjs';
+import { bvidOf, configOf, previewPrompt, previewToken, parsePreview, resultForRequest } from '../src/decision.mjs';
 import { DEFAULT_CONFIG } from '../src/store.mjs';
 import { BV, preview } from './fixtures.mjs';
+
+test('short output binding maps only the exact current token and still rejects copied or foreign task ids', () => {
+  const id='reply-668743a9edbd4189181ea841328209b57e90d46f', run={id};
+  const evidence={text:'测试字幕原文内容足够验证。'};
+  const value={...preview(id),runId:previewToken(id)};
+  assert.match(value.runId,/^bili-[a-f0-9]{16}$/);
+  assert.equal(parsePreview(JSON.stringify(value),run,evidence,DEFAULT_CONFIG).runId,id);
+  for(const runId of ['reply-668743a9edbd4189181ea841328209b57e90e57e90d46f',previewToken('another-task'),value.runId+'a']){
+    assert.throws(()=>parsePreview(JSON.stringify({...value,runId}),run,evidence,DEFAULT_CONFIG),{code:'MODEL_FORMAT'});
+  }
+});
 
 test('only BV and official video URLs are accepted', () => {
   assert.equal(bvidOf(BV), BV);

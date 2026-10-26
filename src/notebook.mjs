@@ -78,7 +78,7 @@ export function writeNote(root, run) {
     ...(run.bvid ? ['视频：https://www.bilibili.com/video/' + run.bvid,
       '依据：' + run.evidence.source + '；覆盖范围：' + run.evidence.coverage, ''] : []),
     ...(run.visionNotice ? ['画面理解未使用，已回退文本：' + run.visionNotice, ''] : []),
-    ...(run.evidence?.source === 'frames' ? ['说明：以下是按秒均匀抽取的画面帧，未播放音频、未读取语音，也不代表完整视频。',
+    ...(run.evidence?.source === 'frames' ? ['说明：按秒均匀抽帧，不代表完整视频或实际听过声音。' + (run.evidence.textSource ? '同时提供文本来源：' + run.evidence.textSource + '；文本覆盖：' + run.evidence.textCoverage + '。' : '没有可用字幕，不编造台词。'),
       '实际抽帧：' + (run.evidence.totalFrames || 0) + ' 帧；时间点（秒）：' +
         (run.evidence.frames || []).map(f => f.at).join('、'),
       '处理区间（秒）：' + (run.evidence.processedRanges || []).map(r => r.from + '–' + r.to).join('、') +

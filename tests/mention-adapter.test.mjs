@@ -41,3 +41,11 @@ test('frame environment, sampling and cache cleanup operations all pass the actu
   assert.deepEqual(sent.map(r => r.method), ['vision_check', 'sample_frames', 'vision_cleanup']);
   assert.equal(reader.pending.size, 0);
 });
+
+test('public comment, root reply and nested reply transport operations pass the actual adapter gate', async () => {
+  const reader=new BiliReader({}), sent=[];
+  reader.start=()=>{reader.child={stdin:{write(line){const r=JSON.parse(line);sent.push(r.method);const item=reader.pending.get(r.id);clearTimeout(item.timer);reader.pending.delete(r.id);item.resolve(r.method);}}};};
+  const operations=['comment_probe','comment_publish','comment_verify','interaction_scan','comment_feedback','comment_reply_probe','comment_reply_publish','comment_reply_verify'];
+  for(const method of operations)assert.equal(await reader.call(method),method);
+  assert.deepEqual(sent,operations);assert.equal(reader.pending.size,0);
+});

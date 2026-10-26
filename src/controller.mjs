@@ -1,4 +1,4 @@
-import { bvidOf, configOf, requestIdOf, previewPrompt, parsePreview, resultForRequest } from './decision.mjs';
+import { bvidOf, configOf, requestIdOf, previewPrompt, previewToken, parsePreview, resultForRequest } from './decision.mjs';
 import { PluginError, assert, errorView } from './errors.mjs';
 import { writeNote } from './notebook.mjs';
 import { ownerContext, ownerUid, uidOf } from './owner.mjs';
@@ -34,6 +34,7 @@ const summarizeRun = run => {
     discussion: evidence.discussion,
     readSegments: evidence.segments?.length || 0,
     totalFrames: evidence.totalFrames, frameTimes: evidence.frames?.map(f => f.at),
+    textSource: evidence.textSource, textCoverage: evidence.textCoverage,
     // Frame bytes never leave the host: only counts and timestamps are exposed.
   } } : {}) };
 };
@@ -179,7 +180,8 @@ export class Controller {
         try {
           const visual = await sampleFrames(this, run, evidence, config);
           if (this.closed) return;
-          if (visual) evidence = { ...evidence, ...visual, text: '' , segments: [] };
+          if (visual) evidence = { ...evidence, ...visual, textSource: evidence.text?.trim() ? evidence.source : undefined,
+            textCoverage: evidence.text?.trim() ? evidence.coverage : undefined };
           else this.store.update(run.id, { visionNotice: evidence.source === 'comments' ? '当前采用声音类视频评论区概述，未抽帧。' : '缺少可用分P信息，未抽帧。' });
         } catch (error) {
           if (this.closed) return;
@@ -204,6 +206,7 @@ export class Controller {
     }
     // Persist before admission. Restart reconciliation never blindly resends.
     text = this.privacy.prepare(run, text);
+    if (['video', 'interaction'].includes(run.kind)) text = '输出校验：本次JSON的runId必须原样使用以下短校验码，不能使用历史任务号，不增删字符：' + JSON.stringify({ runId: previewToken(run.id) }) + '。后文长任务号仅供内部定位，输出时使用此短码；程序验证后会还原内部任务号。\n' + text;
     run = this.store.update(run.id, { state: 'awaiting_model', evidence, configSnapshot: config, promptText: text });
     // Frames are admitted with the prompt only for a visual run; every other
     // path keeps the text-only content shape.
@@ -238,7 +241,12 @@ export class Controller {
       return { run: summarizeRun(this.store.update(id, { state: 'failed', waitReason: null,
         error: { code: 'MODEL_INTERRUPTED', message: '原对话本轮未正常完成，未采纳其中的草稿。请检查原对话。' } })) };
     }
-    assert(result.text.trim(), 'MODEL_EMPTY', '本轮没有可用正文，请检查原对话的模型错误或停止原因。');
+    if (!result.text.trim()) {
+      const message = '模型本轮已结束，但没有返回可用正文；已标记失败，未生成发送草稿，请检查原对话。';
+      this.social.failed(run, message); this.relationships.failed(run, message);
+      this.learning.failed(run, message); this.weekly.failed(run, message);
+      return { run: summarizeRun(this.store.update(id, { state: 'failed', waitReason: null, error: { code: 'MODEL_EMPTY', message } })) };
+    }
     if (run.kind === 'browse_choice') {
       try { return { run: summarizeRun(await this.discovery.complete(run, result.text)) }; }
       catch (error) { return { run: summarizeRun(this.store.update(id, { state: 'failed', waitReason: null, error: errorView(error) })) }; }

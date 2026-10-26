@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fixture, preview, BV } from './fixtures.mjs';
+import { previewToken } from '../src/decision.mjs';
 
 async function setup(t, options = {}) {
   const now = Date.parse('2026-10-25T12:00:00+08:00'), calls = [], prompts = [];
@@ -11,7 +12,7 @@ async function setup(t, options = {}) {
   let f;
   f = fixture(t, { now: () => now, output(text, id) {
     prompts.push(text);
-    return JSON.stringify({ ...preview(id), evidence_quote: options.quote || '测试字幕原文内容', comment: '视频的论据和评论区观点有差别。' });
+    return JSON.stringify({ ...preview(id), runId: options.shortToken ? previewToken(id) : id, evidence_quote: options.quote || '测试字幕原文内容', comment: '视频的论据和评论区观点有差别。' });
   }, call: async (method, p) => {
     calls.push({ method, p });
     if (options.call) { const value = await options.call(method, p); if (value !== undefined) return value; }
@@ -48,9 +49,9 @@ test('owner mention reads the video and related discussion into one watched reco
   assert.match(readFileSync(join(f.workspacePath, run.notePath), 'utf8'), /使用者@触发/);
 });
 
-test('owner mention honors vision preference and sends actual frames with discussion, without browsing quota or ASR', async t => {
+test('owner mention combines actual frames, available subtitles and discussion without browsing quota or ASR', async t => {
   const f = await setup(t, { config: { visionEnabled: true, asrEnabled: true, asrModelPath: process.cwd(), visionFramesPerVideo: 2 },
-    evidence: { cid: 234, duration: 74, text: '', segments: [] }, quote: '蓝色雨伞',
+    evidence: { cid: 234, duration: 74 }, quote: '蓝色雨伞', shortToken: true,
     call(method, p) {
       if (method === 'vision_check') return { ready: true };
       if (method === 'sample_frames') return { bvid: BV, cid: 234, accountUid: '123', source: 'frames', coverage: 'complete', processedSeconds: 74,
@@ -61,7 +62,9 @@ test('owner mention honors vision preference and sends actual frames with discus
   await f.scan();
   const run = f.watched()[0];
   assert.equal(run?.state, 'preview', JSON.stringify(run?.error)); assert.equal(run.evidence.source, 'frames');
-  assert.equal(run.evidence.totalFrames, 2); assert.equal(run.evidence.text, '');
+  assert.equal(run.evidence.totalFrames, 2); assert.equal(run.evidence.text, f.evidence.text);
+  assert.equal(run.evidence.textSource, 'subtitle'); assert.match(f.prompts[0], /测试字幕原文内容/);
+  assert.equal(run.preview.runId,run.id); assert.match(f.prompts[0],new RegExp(previewToken(run.id)));
   assert.equal(f.calls.filter(c => c.method === 'sample_frames').length, 1);
   assert.equal(f.calls.some(c => ['audio_check', 'transcribe_video'].includes(c.method)), false);
   assert.equal(requests[0].content.filter(p => p.type === 'image').length, 2);
