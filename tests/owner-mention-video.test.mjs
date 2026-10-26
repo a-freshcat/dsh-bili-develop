@@ -47,3 +47,35 @@ test('owner mention reads the video and related discussion into one watched reco
   assert.equal(f.controller.interactions.budget('123').evaluations, 1);
   assert.match(readFileSync(join(f.workspacePath, run.notePath), 'utf8'), /使用者@触发/);
 });
+
+test('owner mention honors vision preference and sends actual frames with discussion, without browsing quota or ASR', async t => {
+  const f = await setup(t, { config: { visionEnabled: true, asrEnabled: true, asrModelPath: process.cwd(), visionFramesPerVideo: 2 },
+    evidence: { cid: 234, duration: 74, text: '', segments: [] }, quote: '蓝色雨伞',
+    call(method, p) {
+      if (method === 'vision_check') return { ready: true };
+      if (method === 'sample_frames') return { bvid: BV, cid: 234, accountUid: '123', source: 'frames', coverage: 'complete', processedSeconds: 74,
+        frames: [{ at: 20, data: 'YWJj', width: 768, height: 432 }, { at: 50, data: 'ZGVm', width: 768, height: 432 }], processor: 'synthetic-frames' };
+    } });
+  const requests = [], prompt = f.ctx.sessionController.prompt;
+  f.ctx.sessionController.prompt = async request => { requests.push(request); return prompt(request); };
+  await f.scan();
+  const run = f.watched()[0];
+  assert.equal(run?.state, 'preview', JSON.stringify(run?.error)); assert.equal(run.evidence.source, 'frames');
+  assert.equal(run.evidence.totalFrames, 2); assert.equal(run.evidence.text, '');
+  assert.equal(f.calls.filter(c => c.method === 'sample_frames').length, 1);
+  assert.equal(f.calls.some(c => ['audio_check', 'transcribe_video'].includes(c.method)), false);
+  assert.equal(requests[0].content.filter(p => p.type === 'image').length, 2);
+  assert.match(f.prompts[0], /评论区里的合成观点/); assert.match(f.prompts[0], /抽帧画面/);
+  assert.doesNotMatch(f.prompts[0], /不声称看到画面|视频正文未读到可靠内容/);
+  assert.equal(f.store.frameBudget(f.store.config(), Date.parse(run.createdAt)).requests, 1);
+  assert.equal(f.store.budget(f.store.config(), Date.parse(run.createdAt)).rounds, 0);
+});
+
+test('owner mention records an explicit vision fallback reason and retains subtitle drafting', async t => {
+  const f = await setup(t, { config: { visionEnabled: true }, evidence: { cid: 234, duration: 74 },
+    call(method) { if (method === 'vision_check') return { ready: false, message: '合成抽帧依赖不可用' }; } });
+  await f.scan(); const run = f.watched()[0];
+  assert.equal(run.state, 'preview'); assert.equal(run.evidence.source, 'subtitle');
+  assert.match(run.visionNotice, /合成抽帧依赖不可用/);
+  assert.equal(f.calls.filter(c => c.method === 'vision_check').length, 1);
+});

@@ -1,5 +1,5 @@
 {
-  "version": "0.1.6",
+  "version": "0.1.7",
   "files": [
     {
       "path": ".gitignore",
@@ -8,8 +8,8 @@
     },
     {
       "path": "CHANGELOG.md",
-      "bytes": 14586,
-      "sha256": "daee873a9775afcdbc41ccd2ca432d3822f77f6136822346dc65c3b78990064c"
+      "bytes": 15484,
+      "sha256": "e62651fb74e1aa32e5d0c8c22ce1d1c9c1090d38a264bc32186592e631f1579e"
     },
     {
       "path": "LICENSE",
@@ -18,8 +18,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 22848,
-      "sha256": "9b16021c2dce3fdd5fffe7cd44db3ba1df35fcef230cf6096f0aa82573ca87be"
+      "bytes": 23093,
+      "sha256": "730225503cab0dd6cbb467f4943adbf4e755d1413b2743ea10903617243525d1"
     },
     {
       "path": "SECURITY.md",
@@ -33,13 +33,13 @@
     },
     {
       "path": "USER_GUIDE.md",
-      "bytes": 22828,
-      "sha256": "62d37690a9a31952bb0638a774c5a42bb99a2dabbfc2e5d6ce1daeb2034452c9"
+      "bytes": 23115,
+      "sha256": "62ffb245d8dd543443ba096cec488d15aed6fa3738846033b0605a1edc39af2d"
     },
     {
       "path": "client.js",
-      "bytes": 173203,
-      "sha256": "c1063f12b52941455f1464bee2bb6c4473249b40e7f083d13e6518c4454315e5"
+      "bytes": 173583,
+      "sha256": "86f1c85e61c0e926776bd8685452777f5f1945ced38fd47b9995fd8124bf9e8c"
     },
     {
       "path": "cordis.patch.yml",
@@ -69,7 +69,7 @@
     {
       "path": "package.json",
       "bytes": 1572,
-      "sha256": "27fec041bf125536bd19e298c199ac38978b0274087ec083ce91b4cf3380c031"
+      "sha256": "691143b0b5be79266440a3bf4f0fb77098aeaf659a6f0460319a824d7585750c"
     },
     {
       "path": "python/audio.py",
@@ -208,13 +208,13 @@
     },
     {
       "path": "src/controller.mjs",
-      "bytes": 44422,
-      "sha256": "1fd6b1a71965333f1da81795b032e1c37fa1b07cc96895184a2f036e31dc56fb"
+      "bytes": 44633,
+      "sha256": "403781b30205ff867f102eea9f18cad24431d4c2d5cda044b67127c99b2d6fca"
     },
     {
       "path": "src/decision.mjs",
-      "bytes": 24676,
-      "sha256": "587bc4a1ec5a654c60946ac66ba6f7d6af542dfa4d370e4b7a38b24b1cc484ac"
+      "bytes": 24814,
+      "sha256": "66278fe83f899a84d7ec12a24eac6d9df7cc83fbc4f16e90ae053922ed2f051e"
     },
     {
       "path": "src/dependencies.mjs",
@@ -253,8 +253,8 @@
     },
     {
       "path": "src/interactions.mjs",
-      "bytes": 18371,
-      "sha256": "c1784e09ec353075718ad9eb31b3907c9ff369d1458f880c9de9e2b703e1f5d6"
+      "bytes": 19081,
+      "sha256": "f3bdcefc167e2803b41a07a7c78d410e52b3f1facf5f48df7b1a18dfbfc49750"
     },
     {
       "path": "src/knowledge-packs.mjs",
@@ -278,8 +278,8 @@
     },
     {
       "path": "src/notebook.mjs",
-      "bytes": 10176,
-      "sha256": "457cbca1f8bad1eb2e3af304fc3a54e9d3c779cb2d78d078207f8f8f87822a18"
+      "bytes": 10280,
+      "sha256": "a0764b16fcace967502ff0febbaf632de4f669b11fb9d22cbd83f8c8e0de4f8c"
     },
     {
       "path": "src/owner-mentions.mjs",
@@ -298,8 +298,8 @@
     },
     {
       "path": "src/python.mjs",
-      "bytes": 10652,
-      "sha256": "4f4865c3ee99d01e2b90ec602aa0061cf7225bc4a88d78d0cfe36e9c99d1f1cd"
+      "bytes": 10730,
+      "sha256": "c9a9dd6d7bc02a4e192c7e22f645ffa67b9c166c3779cc3399cb68e0872894d2"
     },
     {
       "path": "src/relationships.mjs",
@@ -477,6 +477,11 @@
       "sha256": "84a596432b749a426394c591eb0557031d68aa4cbc8204b2deab534b0551b44c"
     },
     {
+      "path": "tests/mention-adapter.test.mjs",
+      "bytes": 2251,
+      "sha256": "3af274b3df13b9d8c01aac78a6b0554ec4d86d0453dd183a720496cce43085b4"
+    },
+    {
       "path": "tests/model-setup.test.mjs",
       "bytes": 5982,
       "sha256": "4fae2cdb827ce8f7902bc68e261aea597faba22d407e853604eb5af137cf8c39"
@@ -488,8 +493,8 @@
     },
     {
       "path": "tests/owner-mention-video.test.mjs",
-      "bytes": 3433,
-      "sha256": "0a6fa32ba07e3ce36d7048ce94c6dba85e98775e7f12879edfffeb92848a0984"
+      "bytes": 5839,
+      "sha256": "1231a3ab063bd805f1a1a2108332d22a6a1f305350e53c06283a807040de1876"
     },
     {
       "path": "tests/owner-mentions.test.mjs",

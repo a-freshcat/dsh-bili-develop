@@ -173,20 +173,21 @@ export class Controller {
         // to review after resuming, and the send path re-checks pause itself.
         evidence = { ...evidence, discussion: context.discussion };
       }
-      evidence = await transcribeFallback(this, run, evidence, config);
-      if (this.closed) return;
       // Vision replaces the transcript as primary material when enabled; a
       // stream failure falls back to the text path instead of failing the run.
-      if (!mentionedVideo && config.visionEnabled) {
+      if (config.visionEnabled) {
         try {
           const visual = await sampleFrames(this, run, evidence, config);
           if (this.closed) return;
           if (visual) evidence = { ...evidence, ...visual, text: '' , segments: [] };
+          else this.store.update(run.id, { visionNotice: evidence.source === 'comments' ? '当前采用声音类视频评论区概述，未抽帧。' : '缺少可用分P信息，未抽帧。' });
         } catch (error) {
           if (this.closed) return;
           this.store.update(run.id, { visionNotice: errorView(error).message });
         }
       }
+      if (evidence.source !== 'frames') evidence = await transcribeFallback(this, run, evidence, config);
+      if (this.closed) return;
       this.store.update(run.id, { evidence });
       if (!mentionedVideo && (evidence.source !== 'frames') && (evidence.skipReason || !evidence.text.trim())) {
         this.finish(run.id, { state: 'skipped', skipReason: evidence.skipReason || '没有可读字幕。' });

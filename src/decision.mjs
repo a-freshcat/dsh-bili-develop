@@ -156,6 +156,10 @@ export function videoMaterial(evidence) {
     material.segmentFields = ['from', 'to', 'text'];
     material.segments = evidence.segments.map(s => [s.from, s.to, s.text]);
   }
+  if (evidence.source === 'frames') {
+    material.frameCount = evidence.totalFrames;
+    material.frameTimes = evidence.frames?.map(frame => frame.at);
+  }
   return material;
 }
 export function previewPrompt(run, evidence, config) {
@@ -221,7 +225,7 @@ export function parsePreview(raw, run, evidence, config) {
   }
   if (value.should_comment) {
     const quote = normalize(value.evidence_quote);
-    if (evidence.source === 'frames' && !mentionedVideo) {
+    if (evidence.source === 'frames') {
       // No transcript exists in visual mode, so require a substantive, non-empty
       // quote: the model must point at something it actually saw.
       assert(quote.length >= 2 && value.evidence_quote.trim().length <= 60,

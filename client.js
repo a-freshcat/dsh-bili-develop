@@ -713,15 +713,16 @@ window.__ModuleLoader__.load({
             ['video', 'interaction'].includes(run.kind) && h('a', { href: 'https://www.bilibili.com/video/' + run.bvid + '/', target: '_blank', rel: 'noopener noreferrer' }, '打开视频'),
             h('p', { className: 'muted' }, dateText(run.createdAt), ' · ', h('code', null, run.id)),
             run.kind === 'video' && h('p', { className: 'muted' }, '来源：',
-              ({ manual: '手动读取', immediate: '立即运行', scheduled: '定时浏览', interaction: '评论互动' })[run.source || 'manual'],
+              ({ manual: '手动读取', immediate: '立即运行', scheduled: '定时浏览', interaction: '评论互动', owner_mention: '使用者@触发' })[run.source || 'manual'],
               run.roundId ? ' · 轮次 ' + run.roundId : ''),
             run.browseSelection?.mode === 'tag' && h('p', { className: 'muted' }, 'TAG入口：', run.browseSelection.query,
               ' · 实际标签：', run.browseSelection.tags.map(t => t.name).join('、'), ' · 核对时间：', dateText(run.browseSelection.checkedAt)),
             run.browseSelection?.mode === 'autonomous' && h('p', { className: 'muted' }, '自主选片：', run.browseSelection.reason,
               ' · 实际标签：', run.browseSelection.tags.join('、') || '无标签', ' · 当时想了解：', run.browseSelection.intent),
             run.evidence && h('p', { className: 'muted' }, '依据：', evidenceSources[run.evidence.source] || run.evidence.source,
-              run.evidence.source === 'interaction' ? (run.interactionTrigger === 'self_reply' ? ' · 对自己评论的直接回复' : run.interactionTrigger === 'owner_mention' ? ' · 使用者@触发的单条留言' : ' · 普通评论关键词命中') : run.evidence.source === 'comments' ? ' · 已读 ' + run.evidence.commentSample.count + ' 条样本，非完整视频理解' :
+              run.evidence.source === 'frames' ? ' · 抽帧：' + run.evidence.totalFrames + ' 帧 · 时间点（秒）：' + (run.evidence.frameTimes || []).join('、') : run.evidence.source === 'interaction' ? (run.interactionTrigger === 'self_reply' ? ' · 对自己评论的直接回复' : run.interactionTrigger === 'owner_mention' ? ' · 使用者@触发的单条留言' : ' · 普通评论关键词命中') : run.evidence.source === 'comments' ? ' · 已读 ' + run.evidence.commentSample.count + ' 条样本，非完整视频理解' :
                 ' · 覆盖：' + run.evidence.coverage + ' · 文本段数：' + run.evidence.readSegments + '/' + run.evidence.totalSegments),
+            run.visionNotice && h('p', { className: 'notice' }, '画面理解未使用，已回退文本：', run.visionNotice),
             run.interactionTarget && h(React.Fragment, null, h('strong', null, run.interactionTarget.level === 'sub' ? '楼中楼 · 原留言' : '检索普通留言 · 原留言'),
               h('blockquote', { className: run.interactionTarget.level === 'sub' ? 'sub-comment' : 'root-comment' }, run.interactionTarget.text),
               h('p', { className: 'muted' }, 'UID ', run.interactionTarget.uid, ' · 评论 ', run.interactionTarget.id)),
@@ -742,7 +743,7 @@ window.__ModuleLoader__.load({
               h('strong', null, run.evidence?.source === 'comments' ? '评论区概述' : '摘要'), h('p', null, run.preview.summary),
               h('strong', null, '评价'), h('p', null, run.preview.evaluation),
               run.preview.should_comment ? commentEditor(run) : h('p', null, '本次不准备评论。'),
-              h('p', null, run.preview.reason), h('p', { className: 'muted' }, '文本依据：', run.preview.evidence_quote)),
+              h('p', null, run.preview.reason), h('p', { className: 'muted' }, run.evidence?.source === 'frames' ? '画面依据：' : '文本依据：', run.preview.evidence_quote)),
             (run.skipReason || run.error?.message || run.waitReason) &&
               h('p', null, run.skipReason || run.error?.message || run.waitReason),
             run.probeResult && h('p', null, run.probeResult),
