@@ -30,6 +30,8 @@ export const DEFAULT_CONFIG = Object.freeze({
   dmProactiveEnabled: false, dmProactiveDailyLimit: 3,
   commentMode: 'preview', commentPrivacyMode: 'strict', dailyCommentLimit: 5, perRoundCommentLimit: 1, commentMinIntervalSeconds: 300,
   commentMentionsEnabled: false, dailyMentionLimit: 5, mentionsPerComment: 1, mentionMinIntervalSeconds: 3600,
+  accountReplyEnabled: false, accountReplyMode: 'preview', accountReplyVideos: true, accountReplyDynamics: true,
+  accountReplyPollSeconds: 120, accountReplyDailyLimit: 5, accountReplyDailyEvaluations: 20, accountReplyPerCheck: 1,
   mentionTargets: [],
   interactionKeywords: [], ownerCommentReplyEnabled: false, ownerMentionPollSeconds: 120,
   selfCommentReplyEnabled: false, selfReplyPollSeconds: 120, interactionTopLimit: 1, interactionSubLimit: 1, dailyInteractionEvaluationLimit: 20,

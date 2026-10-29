@@ -347,6 +347,20 @@ class PublishingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result['publicList'], {'state': 'unavailable'})
         self.assertEqual(self.posts, [])
 
+    async def test_known_receipt_detail_can_confirm_account_record_missing_from_latest_without_claiming_public_visibility(self):
+        at = 1792728000000
+        row = self.root(rpid=555, member={'mid': 123}, ctime=at // 1000, content={'message': '内容很清晰。'}, parent=0)
+        self.subcomments.return_value = {'root': row, 'replies': []}
+        result = await self.dispatch('comment_verify', attempted_at=at, receipt='555')
+        self.assertTrue(result['confirmed'])
+        self.assertEqual(result['publicList'], {'state': 'not_in_sample', 'sampleCount': 0})
+        for changes in [{'rpid': 999}, {'member': {'mid': 999}}, {'content': {'message': '其他内容'}}, {'ctime': at // 1000 + 301}, {'root': 777}, {'parent': 777}]:
+            self.subcomments.return_value = {'root': {**row, **changes}}
+            self.assertFalse((await self.dispatch('comment_verify', attempted_at=at, receipt='555'))['confirmed'])
+        self.subcomments.side_effect = TimeoutError()
+        self.assertFalse((await self.dispatch('comment_verify', attempted_at=at, receipt='555'))['confirmed'])
+        self.assertEqual(self.posts, [])
+
     async def test_probe_reads_comments_without_publishing(self):
         result = await self.dispatch("comment_probe")
         self.assertEqual(result["oid"], "987")

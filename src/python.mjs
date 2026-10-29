@@ -62,7 +62,7 @@ export class BiliReader {
     child.on('error', fail); child.on('exit', fail); child.stdin.on('error', fail);
   }
   call(method, params = {}, timeoutMs = 65000) {
-    if (!['ping', 'account', 'login_start', 'login_poll', 'logout', 'read_video', 'read_cover', 'search_videos', 'recommend_videos', 'audio_check', 'audio_cleanup', 'transcribe_video',
+    if (!['account_resources', 'account_comments', 'account_reply_probe', 'account_reply_publish', 'account_reply_verify', 'ping', 'account', 'login_start', 'login_poll', 'logout', 'read_video', 'read_cover', 'search_videos', 'recommend_videos', 'audio_check', 'audio_cleanup', 'transcribe_video',
       'contacts_page', 'dm_inbox', 'dm_thread', 'dm_reply', 'relationship_probe', 'follow_user', 'dm_proactive_probe', 'dm_proactive_send', 'user_info', 'comment_probe', 'comment_publish', 'comment_verify',
       'interaction_scan', 'owner_mentions', 'mentioned_video_context', 'vision_check', 'sample_frames', 'vision_cleanup', 'comment_feedback', 'comment_reply_probe', 'comment_reply_publish', 'comment_reply_verify', 'weekly_image', 'weekly_card', 'weekly_probe', 'weekly_publish', 'weekly_verify'].includes(method)) {
       return Promise.reject(new PluginError('READ_ONLY', '此版本不支持该适配操作。'));

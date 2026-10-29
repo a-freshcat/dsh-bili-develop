@@ -22,6 +22,7 @@ import { sampleFrames, frameParts } from './vision.mjs';
 import { coverUrl } from './media.mjs';
 import { validateCommentEvidence, validateDiscussion } from './community.mjs';
 import { HISTORY_PAGE_SIZE } from './store.mjs';
+import { AccountManager } from './account-manager.mjs';
 
 const summarizeRun = run => {
   if (!run) return null;
@@ -62,8 +63,9 @@ export class Controller {
     this.privacy = new Privacy(this);
     this.feedback = new Feedback(this);
     this.relationships = new Relationships(this);
+    this.accountManager = new AccountManager(this);
   }
-  async status({ offset = 0, contactsOffset = 0, contactQuery = '', privateView = {}, interactionView = {}, publishedView = {}, pendingView = {}, recordId = '', learningOffset = 0, learningView = {}, weeklyOffset = 0, filters = {} } = {}) {
+  async status({ offset = 0, contactsOffset = 0, contactQuery = '', privateView = {}, interactionView = {}, publishedView = {}, pendingView = {}, accountView = {}, recordId = '', learningOffset = 0, learningView = {}, weeklyOffset = 0, filters = {} } = {}) {
     assert(Number.isInteger(offset) && offset >= 0 && offset <= 1000000, 'INVALID_PAGE', '分页参数无效。');
     return {
       version, mode: this.store.config().commentMode === 'preview' ? 'preview_only' : 'controlled_comments',
@@ -72,6 +74,7 @@ export class Controller {
       workspaces: this.host.listWorkspaces(), active: summarizeRun(this.store.active()),
       runs: this.store.list(HISTORY_PAGE_SIZE, offset, filters).map(summarizeRun), total: this.store.count(filters), offset, pageSize: HISTORY_PAGE_SIZE,
       history: this.history.status(filters, pendingView), record: summarizeRun(this.history.detail(recordId)),
+      accountManagement: this.accountManager.status(accountView),
       privacy: this.privacy.context(),
       feedback: this.feedback.status(),
       relationships: this.relationships.status(),
@@ -106,6 +109,7 @@ export class Controller {
     this.interactions.configured(previous, config);
     this.ownerMentions.configured(previous, config);
     this.selfReplies.configured(previous, config);
+    this.accountManager.configured(previous, config);
     if (previous.pythonPath !== config.pythonPath) this.resetReader();
     if (previous.pythonPath !== config.pythonPath || previous.asrModelPath !== config.asrModelPath)
       this.audioEnvironment = { state: 'unchecked', message: '设置已变更，请重新检查音频环境。' };
@@ -149,7 +153,7 @@ export class Controller {
     if (this.closed) return;
     const mentionedVideo = run.kind === 'video' && run.source === 'owner_mention';
     const config = { ...this.store.config(), ...(run.interactionTarget ? { commentMentionsEnabled: false } : {}) };
-    let evidence = run.kind === 'interaction' ? run.evidence : undefined;
+    let evidence = ['interaction','account_reply'].includes(run.kind) ? run.evidence : undefined;
     if (run.kind === 'video') {
       if (mentionedVideo) this.interactions.assertAllowed({ id: run.id, target: run.interactionTarget, accountUid: run.accountUid, bvid: run.bvid });
       evidence = await this.reader().call('read_video', { bvid: run.bvid, max_chars: config.maxContentChars });
@@ -196,17 +200,17 @@ export class Controller {
         await this.interactions.inspect(this.store.run(run.id)); return;
       }
     }
-    let text = run.kind === 'dm_proactive' ? this.relationships.prompt(run, config) : run.kind === 'browse_choice' ? this.discovery.prompt(run, config) : run.kind === 'weekly' ? this.weekly.prompt(run, config) : run.kind === 'learning_review' ? this.learning.reviewPrompt(run, config) : run.interactionTarget ? this.interactions.prompt({ ...run, evidence }, config) : run.kind === 'dm' ? privatePrompt(run, config) : run.kind === 'probe' ?
+    let text = run.kind === 'account_reply' ? this.accountManager.prompt(run, config) : run.kind === 'dm_proactive' ? this.relationships.prompt(run, config) : run.kind === 'browse_choice' ? this.discovery.prompt(run, config) : run.kind === 'weekly' ? this.weekly.prompt(run, config) : run.kind === 'learning_review' ? this.learning.reviewPrompt(run, config) : run.interactionTarget ? this.interactions.prompt({ ...run, evidence }, config) : run.kind === 'dm' ? privatePrompt(run, config) : run.kind === 'probe' ?
       ownerContext(config) + '\n这是专用对话的只读接入检查。请只回复：BILI_PROBE_OK ' + run.id :
       previewPrompt({ ...run, publicationContext: this.comments.context(String(evidence.accountUid || '')) }, evidence, config);
-    if (['video', 'interaction', 'dm', 'dm_proactive'].includes(run.kind)) {
+    if (['video', 'interaction', 'account_reply', 'dm', 'dm_proactive'].includes(run.kind)) {
       const learningSnapshot = this.learning.context(String(evidence?.accountUid || run.accountUid || ''), evidence, run.kind);
       text = learningSnapshot.text + '\n' + this.learning.instruction(run) + '\n' + text;
       run = this.store.update(run.id, { learningSnapshot });
     }
     // Persist before admission. Restart reconciliation never blindly resends.
     text = this.privacy.prepare(run, text);
-    if (['video', 'interaction'].includes(run.kind)) text = '输出校验：本次JSON的runId必须原样使用以下短校验码，不能使用历史任务号，不增删字符：' + JSON.stringify({ runId: previewToken(run.id) }) + '。后文长任务号仅供内部定位，输出时使用此短码；程序验证后会还原内部任务号。\n' + text;
+    if (['video', 'interaction', 'account_reply'].includes(run.kind)) text = '输出校验：本次JSON的runId必须原样使用以下短校验码，不能使用历史任务号，不增删字符：' + JSON.stringify({ runId: previewToken(run.id) }) + '。后文长任务号仅供内部定位，输出时使用此短码；程序验证后会还原内部任务号。\n' + text;
     run = this.store.update(run.id, { state: 'awaiting_model', evidence, configSnapshot: config, promptText: text });
     // Frames are admitted with the prompt only for a visual run; every other
     // path keeps the text-only content shape.
@@ -246,6 +250,11 @@ export class Controller {
       this.social.failed(run, message); this.relationships.failed(run, message);
       this.learning.failed(run, message); this.weekly.failed(run, message);
       return { run: summarizeRun(this.store.update(id, { state: 'failed', waitReason: null, error: { code: 'MODEL_EMPTY', message } })) };
+    }
+    if (run.kind === 'account_reply') {
+      try { this.accountManager.complete(run,result.text); }
+      catch(error) { this.store.update(id,{state:'failed',waitReason:null,error:errorView(error)});const r=this.accountManager.get(id);if(r)this.accountManager.save({...r,state:'failed',reason:errorView(error).message}); }
+      return {run:summarizeRun(this.store.run(id))};
     }
     if (run.kind === 'browse_choice') {
       try { return { run: summarizeRun(await this.discovery.complete(run, result.text)) }; }
@@ -572,6 +581,7 @@ export class Controller {
       case 'weekly_verify': return this.weekly.verify(input);
       case 'weekly_discard': return this.weekly.discard(input);
       case 'learning_change': return this.learning.change(input);
+      case 'learning_integrate': return this.learning.review({ integrate: true });
       case 'learning_rollback': return this.learning.rollbackIteration(input);
       case 'learning_review': return this.learning.review();
       case 'learning_project': this.learning.project(); return { message: this.learning.projection?.state === 'saved' ? '工作区学习快照已更新。' : this.learning.projection?.message || '请先读取视频确认学习账号。' };
@@ -590,6 +600,13 @@ export class Controller {
       case 'check_comment': return this.comments.check(input.requestId);
       case 'verify_comment': return this.comments.verify(input.requestId);
       case 'pause_comments': return this.comments.pause();
+      case 'account_scan': return this.accountManager.scan({url:input.url||'',history:input.history??false});
+      case 'account_publish': return this.accountManager.publish(input.requestId,input.revision,input);
+      case 'account_verify': return this.accountManager.verify(input.requestId);
+      case 'account_unwatch': return this.accountManager.unwatch(input.resourceKey);
+      case 'account_retry': return this.accountManager.retry(input.requestId);
+      case 'account_pause': this.store.set('accountReplyPaused',true);return {message:'账号管理已暂停。'};
+      case 'account_resume': this.store.set('accountReplyPaused',false);return {message:'账号管理已继续，仍受活动时段和全局评论暂停限制。'};
       case 'resume_comments': return this.comments.resume();
       case 'import_fans': return this.social.importFans(input.page);
       case 'rate_contact': return this.social.rate(input);
@@ -679,5 +696,5 @@ export class Controller {
   deleteRecord(id) {
     return this.history.remove([this.store.run(requestIdOf(id))]);
   }
-  close() { this.closed = true; this.scheduler.close(); this.social.close(); this.comments.close(); this.learning.close(); this.weekly.close(); this.feedback.close(); this.relationships.close(); this.ownerMentions.close(); this.selfReplies.close(); this.installAbort?.abort(); this.resetReader(); }
+  close() { this.closed = true; this.scheduler.close(); this.social.close(); this.comments.close(); this.learning.close(); this.weekly.close(); this.feedback.close(); this.relationships.close(); this.ownerMentions.close(); this.selfReplies.close(); this.accountManager.close(); this.installAbort?.abort(); this.resetReader(); }
 }

@@ -31,9 +31,15 @@ export function configOf(input, previous) {
     'interactionKeywords', 'ownerCommentReplyEnabled', 'ownerMentionPollSeconds', 'selfCommentReplyEnabled', 'selfReplyPollSeconds', 'interactionTopLimit', 'interactionSubLimit', 'dailyInteractionEvaluationLimit',
     'learningEnabled', 'learningKnowledgePacks', 'learningDailyTime', 'learningDailyReport', 'learningReportDetail', 'learningDirectionSuggestions', 'learningAdvice', 'learningDailyReviewLimit', 'learningFeedbackEnabled', 'learningCreativeIdeas',
     'weeklyAutoDraft', 'weeklyDay', 'weeklyTime', 'weeklyMinSources', 'weeklyDailyDraftLimit', 'weeklyDailyPublishLimit', 'weeklyMinIntervalHours', 'weeklyAutoImage']);
+  for (const key of ['accountReplyEnabled','accountReplyMode','accountReplyVideos','accountReplyDynamics','accountReplyPollSeconds','accountReplyDailyLimit','accountReplyDailyEvaluations','accountReplyPerCheck']) allowed.add(key);
   assert(Object.keys(input).every(k => allowed.has(k)), 'INVALID_CONFIG', '包含当前版本不支持的设置。');
   const c = { ...previous, ...input };
   c.commentPrivacyMode ??= 'strict';
+  c.accountReplyEnabled ??= false; c.accountReplyMode ??= 'preview'; c.accountReplyVideos ??= true; c.accountReplyDynamics ??= true;
+  c.accountReplyPollSeconds ??= 120; c.accountReplyDailyLimit ??= 5; c.accountReplyDailyEvaluations ??= 20; c.accountReplyPerCheck ??= 1;
+  assert(['preview','manual','auto'].includes(c.accountReplyMode) && ['accountReplyEnabled','accountReplyVideos','accountReplyDynamics'].every(k=>typeof c[k]==='boolean'), 'INVALID_CONFIG', '账号管理模式或范围无效。');
+  for (const [key,min,max] of [['accountReplyPollSeconds',60,3600],['accountReplyDailyLimit',0,500],['accountReplyDailyEvaluations',0,500],['accountReplyPerCheck',1,10]])
+    assert(Number.isInteger(c[key])&&c[key]>=min&&c[key]<=max,'INVALID_CONFIG','账号管理间隔或额度无效。');
   c.pythonPath ??= '';
   c.asrModelPath ??= '';
   c.browseMode ??= 'search'; c.dailyBrowseChoiceLimit ??= 3;

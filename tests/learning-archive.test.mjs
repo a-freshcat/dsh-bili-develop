@@ -98,7 +98,7 @@ test('review export recovers legacy scope, is idempotent, stays in the original 
 test('automatic local archives cannot turn a completed daily review into failure, and manual retry uses the same saved result', async t => {
   let clock = Date.parse('2026-10-21T04:00:00Z');
   const f = fixture(t, { now: () => clock, output: (_prompt, id) => JSON.stringify(id.startsWith('learn-') ? {
-    runId: id, comparison: '比较后保留当前习惯。', decisions: [], additions: [], expression_decisions: [], report: '', direction: '',
+    runId: id, integrated_persona: { text: '', reason: '暂无足够材料形成人设。', source_ids: [] }, comparison: '比较后保留当前习惯。', decisions: [], additions: [], expression_decisions: [], report: '', direction: '',
   } : preview(id)) });
   await f.bind(); f.controller.configure({ learningEnabled: true, timeZone: 'Asia/Singapore' });
   await f.controller.start({ requestId: 'archive-auto-source', bvid: 'BV1xx411c7mD' }); await f.controller.idle();

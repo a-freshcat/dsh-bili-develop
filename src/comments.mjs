@@ -20,7 +20,7 @@ const feedbackOf = value => {
 const exposed = d => d && Object.fromEntries(['id', 'state', 'text', 'mentions', 'revision', 'reason', 'receipt', 'mentionState', 'attemptedAt', 'accountUid', 'bvid', 'contentCleared', 'target', 'kind', 'confirmationSource', 'confirmedAt', 'publicList', 'platformFeedback', 'receiptCandidate']
   .filter(k => d[k] !== undefined).map(k => [k, d[k]]));
 const revisionOf = d => hash([d.id, d.accountUid, d.bvid, d.text, d.mentions, d.policy, ...(d.target ? [d.target] : [])]);
-const attempts = '(SELECT id,account_uid,bvid,round_key,text_hash,at_ms FROM comment_attempts UNION ALL SELECT id,account_uid,bvid,round_key,text_hash,at_ms FROM reply_attempts)';
+const attempts = '(SELECT id,account_uid,bvid,round_key,text_hash,at_ms FROM comment_attempts UNION ALL SELECT id,account_uid,bvid,round_key,text_hash,at_ms FROM reply_attempts UNION ALL SELECT id,account_uid,bvid,round_key,text_hash,at_ms FROM account_reply_attempts)';
 export class Comments {
   constructor(c) {
     this.c = c; this.store = c.store; this.db = c.store.db;
@@ -31,6 +31,9 @@ export class Comments {
       CREATE INDEX IF NOT EXISTS comment_usage ON comment_attempts(account_uid,at_ms);
       CREATE TABLE IF NOT EXISTS reply_attempts(id TEXT PRIMARY KEY,account_uid TEXT NOT NULL,bvid TEXT NOT NULL,target_id TEXT NOT NULL,source_id TEXT NOT NULL,level TEXT NOT NULL,round_key TEXT NOT NULL,text_hash TEXT NOT NULL,at_ms INTEGER NOT NULL,UNIQUE(account_uid,bvid,target_id));
       CREATE INDEX IF NOT EXISTS reply_usage ON reply_attempts(account_uid,at_ms);
+      CREATE TABLE IF NOT EXISTS account_reply_attempts(id TEXT PRIMARY KEY,account_uid TEXT NOT NULL,bvid TEXT NOT NULL,round_key TEXT NOT NULL,text_hash TEXT NOT NULL,at_ms INTEGER NOT NULL);
+      CREATE INDEX IF NOT EXISTS account_reply_usage ON account_reply_attempts(account_uid,at_ms);
+      CREATE TABLE IF NOT EXISTS account_comments(id TEXT PRIMARY KEY,account_uid TEXT NOT NULL,resource_key TEXT NOT NULL,target_id TEXT NOT NULL,state TEXT NOT NULL,at_ms INTEGER NOT NULL,data TEXT NOT NULL,UNIQUE(account_uid,resource_key,target_id));
       CREATE TABLE IF NOT EXISTS mention_attempts(id TEXT NOT NULL,account_uid TEXT NOT NULL,uid TEXT NOT NULL,scope TEXT NOT NULL,at_ms INTEGER NOT NULL,PRIMARY KEY(id,uid));
       CREATE INDEX IF NOT EXISTS mention_usage ON mention_attempts(account_uid,at_ms);
     `);
@@ -153,6 +156,7 @@ export class Comments {
     assert(d.target ? !this.db.prepare('SELECT 1 FROM reply_attempts WHERE account_uid=? AND bvid=? AND target_id=?').get(d.accountUid, d.bvid, d.target.id) :
       !this.db.prepare('SELECT 1 FROM comment_attempts WHERE account_uid=? AND bvid=?').get(d.accountUid, d.bvid),
       'COMMENT_DUPLICATE', '当前账号已尝试评论这个视频，不重复发送。', 409);
+    if(d.target)assert(!this.db.prepare('SELECT 1 FROM account_reply_attempts p JOIN account_comments a ON a.id=p.id WHERE p.account_uid=? AND a.resource_key=? AND a.target_id=?').get(d.accountUid,'video:'+d.bvid,d.target.id),'COMMENT_DUPLICATE','账号管理已尝试回复这条评论，不重复发送。',409);
     const b = this.budget(d.accountUid, d.roundKey);
     assert(b.attempts < b.limit, 'COMMENT_LIMIT', '已达到每日评论上限（0关闭发送）。', 409);
     assert(d.target || b.roundAttempts < b.roundLimit, 'COMMENT_ROUND_LIMIT', '已达到本轮主动评论上限（0关闭发送）。', 409);

@@ -327,6 +327,12 @@ async def dispatch(method, params):
             return await relationships.dispatch(method, params, credential())
         except relationships.RelationshipError as error:
             raise ReadError(error.code, str(error)) from None
+    if method in ("account_resources", "account_comments", "account_reply_probe", "account_reply_publish", "account_reply_verify"):
+        import account_manager
+        try:
+            return await account_manager.dispatch(method, params, credential())
+        except account_manager.PublishError as error:
+            raise ReadError(error.code, str(error)) from None
     if method in ("contacts_page", "dm_inbox", "dm_thread", "dm_reply"):
         if not credential().sessdata:
             raise ReadError("NOT_LOGGED_IN", "请先在高级设置检查登录。")

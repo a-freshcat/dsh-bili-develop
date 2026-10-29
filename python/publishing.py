@@ -341,14 +341,29 @@ async def dispatch(method, params, cred):
             raise PublishError("COMMENT_VERIFY", "发送时间无效。")
         data = reply_page if reply_method else await comment.get_comments(int(found["oid"]), comment.CommentResourceType.VIDEO, page_index=1, order=comment.OrderType.TIME, credential=cred)
         matches = {}
-        for row in (data.get("replies") or [])[:20]:
+        def match(row):
+            if not isinstance(row, dict):
+                return
             rid = str(row.get("rpid_str") or row.get("rpid") or "")
             author = str((row.get("member") or {}).get("mid", row.get("mid", "")))
             if (author == found["accountUid"] and message_matches((row.get("content") or {}).get("message"), text, found["mentions"])
                     and (not reply_method or (str(row.get("root_str") or row.get("root")) == found["target"]["root"] and str(row.get("parent_str") or row.get("parent")) == found["target"]["id"]))
                     and type(row.get("ctime")) in (int, float) and at - 2000 <= row["ctime"] * 1000 <= at + 300000
+                    and (reply_method or str(row.get('root_str') or row.get('root') or 0) == '0' and str(row.get('parent_str') or row.get('parent') or 0) == '0')
                     and re.fullmatch(r"[1-9]\d*", rid) and (not params.get("receipt") or params["receipt"] == rid)):
                 matches[rid] = row
+        for row in (data.get("replies") or [])[:20]:
+            match(row)
+        # A self-only/older comment may be absent from the latest list. A known
+        # receipt permits one bounded GET, but never proves public visibility.
+        known = params.get('receipt')
+        if not matches and not reply_method and isinstance(known, str) and re.fullmatch(r'[1-9]\d{0,29}', known):
+            try:
+                detail = await asyncio.wait_for(comment.Comment(int(found['oid']), comment.CommentResourceType.VIDEO,
+                    int(known), credential=cred).get_sub_comments(page_index=1, page_size=1), timeout=10)
+                match(detail.get('root') if isinstance(detail, dict) else None)
+            except Exception:
+                pass
         rid = next(iter(matches)) if len(matches) == 1 else ""
         return {**found, "confirmed": bool(rid), "receipt": rid,
                 **({"publicList": await anonymous_list_sample(found, text, rid)} if rid and not reply_method else {}),

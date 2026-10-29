@@ -12,7 +12,13 @@ const observation = { expression: '足够验证', meaning: '表示证据足够',
 function setup(t, extra = {}) {
   let now = day;
   const f = fixture(t, { now: () => now, output: (_text, id) => {
-    if (id.startsWith('learn-')) return JSON.stringify(f.response(f.store.run(id)));
+    if (id.startsWith('learn-')) {
+      const run = f.store.run(id), response = f.response(run);
+      // Existing cases exercise legacy provenance decisions alongside the new required profile.
+      return JSON.stringify(typeof response === 'object' ? { integrated_persona: {
+        text: run.learningReview.iterationBefore.profile?.text || '', reason: '按整体比较保留或调整人设。',
+        source_ids: run.learningReview.sources.map(s => s.id) }, ...response } : response);
+    }
     return JSON.stringify({ ...preview(id), learning_observations: [observation], used_expression_ids: [] });
   }, ...extra });
   f.response = run => ({ runId: run.id, comparison: '与原有迭代相比，保留稳定习惯，对新的证据保持观察。', decisions: run.learningReview.iterationBefore.traits.map(t => ({ id: t.id, action: 'keep', reason: '仍适合基础人设。' })), additions: [], expression_decisions: [], report: '', direction: '' });
@@ -265,4 +271,132 @@ test('a full catalogue archives only model-retired entries, preserving their pro
   assert.equal(f.controller.learning.status().counts.archived, 1);
   const last = f.controller.learning.events('123', 20).find(e => e.entity === 'capacity-1');
   assert.throws(() => f.controller.learning.change({ id: 'capacity-1', operation: 'rollback', version: 2, eventId: last.id }), { code: 'LEARNING_LIMIT' });
+});
+
+test('direction guides consolidation and changing it rejects an in-flight review', async t => {
+  const f = setup(t); await f.bind(); f.enable();
+  f.controller.configure({ learningAdvice: '合并重复习惯，表达要有生活化的幽默。' });
+  await f.read('direction-source'); f.nextDay();
+  f.response = run => {
+    assert.match(f.controller.learning.reviewPrompt(run, f.store.config()), /合并重复习惯/);
+    f.store.set('config', { ...f.store.config(), learningAdvice: '更简洁' });
+    return setupResponse(run);
+  };
+  const { id } = await f.controller.learning.review(); await f.controller.idle();
+  assert.equal(f.store.run(id).error.code, 'LEARNING_STALE');
+  assert.equal(f.controller.learning.iteration().version, 0);
+});
+
+test('discarded traits can be picked up within a week and expire beyond it without rollback revival', async t => {
+  const f = setup(t); await f.bind(); f.enable(); await f.read('discard-trait-source');
+  f.store.set('iteration:123', { version: 1, traits: [{ id: 'discarded-trait', text: '重复习惯', reason: '旧依据', sourceIds: [] }] });
+  f.response = run => ({ ...setupResponse(run), decisions: [{ id: 'discarded-trait', action: 'remove', reason: '无用记录，丢弃。' }] });
+  f.nextDay(); const { id } = await f.controller.learning.review(); await f.controller.idle();
+  const l = f.controller.learning;
+  assert.equal(l.status().discardedTraits.length, 1);
+  l.change({ id: 'discarded-trait', operation: 'restore_trait', version: l.iteration().version });
+  assert.equal(l.iteration().traits.length, 1); assert.equal(l.status().discardedTraits.length, 0);
+  // A separate discarded trait stays available at exactly seven days, then expires.
+  f.store.db.prepare('INSERT INTO learning_discarded VALUES(?,?,?,?)').run('expired-trait', '123', day, JSON.stringify({ id: 'expired-trait', text: '过期习惯' }));
+  f.now(day + 7 * 86400000); assert.equal(l.status().discardedTraits.length, 1);
+  f.now(day + 7 * 86400000 + 1); assert.equal(l.status().discardedTraits.length, 0);
+  assert.throws(() => l.change({ id: 'expired-trait', operation: 'restore_trait', version: l.iteration().version }), { code: 'LEARNING_STALE' });
+  assert.equal(l.iteration().traits[0].text, '重复习惯');
+  assert.equal(f.store.run(id).state, 'completed');
+});
+
+test('discarded expressions expire while picked-up candidates and user bans survive with learning off', async t => {
+  const f = setup(t); await f.bind(); f.enable(); await f.read('discard-expression-source');
+  const l = f.controller.learning, e = l.entries()[0];
+  l.change({ id: e.id, version: e.version, operation: 'stop' });
+  f.now(day + 6 * 86400000);
+  l.change({ id: e.id, version: l.entry(e.id).version, operation: 'restore' });
+  f.now(day + 8 * 86400000); l.tick(); assert.equal(l.entry(e.id).state, 'candidate');
+  l.change({ id: e.id, version: l.entry(e.id).version, operation: 'stop' });
+  l.saveEntry({ ...e, id: 'user-ban', expression: '禁用短语', state: 'blocked', discardedAt: day });
+  f.controller.configure({ learningEnabled: false });
+  f.now(day + 16 * 86400000); l.tick();
+  assert.equal(l.entry(e.id), undefined); assert.equal(l.entry('user-ban').state, 'blocked');
+  assert.equal(f.store.db.prepare('SELECT COUNT(*) n FROM learning_evidence WHERE entry_id=?').get(e.id).n, 0);
+});
+
+test('review integrates expression usage and context supplies creative examples without changing the original idiom', async t => {
+  const f = setup(t); await f.bind(); f.enable(); await f.read('creative-use-1'); await f.read('creative-use-2', 'BV1xx411c7mE');
+  const l = f.controller.learning, e = l.entries()[0];
+  l.saveEntry({ ...e, state: 'active' }); f.nextDay();
+  f.response = run => ({ ...setupResponse(run), expression_decisions: [{ id: e.id, action: 'revise', reason: '整合语境与幽默机制。',
+    meaning: '论据充分时的轻巧收尾', context: '核对证据后用生活类比', avoid: '悲伤场景不用', example: '这证据密度，都能给结论承重了。' }] });
+  const { id } = await l.review(); await f.controller.idle(); assert.equal(f.store.run(id).state, 'completed');
+  assert.equal(l.entry(e.id).expression, e.expression); assert.match(l.entry(e.id).example, /承重/);
+  const snapshot = l.context('123', f.evidence); assert.match(snapshot.text, /承重/); assert.match(snapshot.text, /可改写、借用结构/);
+});
+
+test('consolidation can remove several redundant traits and expired removals cannot be rolled back', async t => {
+  const f = setup(t); await f.bind(); f.enable(); await f.read('merge-trait-source');
+  const l = f.controller.learning;
+  f.store.set('iteration:123', { version: 1, traits: Array.from({ length: 5 }, (_, i) => ({ id: 'merge-old-' + i, text: '旧习惯' + i, reason: '旧来源', sourceIds: [] })) });
+  f.response = run => ({ ...setupResponse(run), decisions: run.learningReview.iterationBefore.traits.map((old, i) => i ?
+    { id: old.id, action: 'remove', reason: '整合到第一条。' } : { id: old.id, action: 'revise', text: '以具体细节作简短而风趣的类比。', reason: '合并近义习惯。', source_ids: [run.learningReview.sources[0].id] }) });
+  f.nextDay(); const { id } = await l.review(); await f.controller.idle();
+  assert.equal(f.store.run(id).state, 'completed'); assert.equal(l.iteration().traits.length, 1);
+  assert.equal(l.status().discardedTraits.length, 4);
+  f.now(day + 9 * 86400000); l.cleanupDiscarded();
+  assert.throws(() => l.rollbackIteration({ reviewId: id, version: l.iteration().version }), { code: 'LEARNING_ROLLBACK' });
+  assert.equal(l.iteration().traits.length, 1);
+});
+
+test('repeated discard does not postpone expiry and legacy inactive records receive one migration timestamp', async t => {
+  const f = setup(t); await f.bind(); f.enable(); await f.read('repeated-stop-source');
+  const l = f.controller.learning, e = l.entries()[0];
+  l.saveEntry({ ...e, state: 'inactive' }); l.cleanupDiscarded(); assert.equal(l.entry(e.id).discardedAt, day);
+  f.now(day + 6 * 86400000); l.cleanupDiscarded();
+  l.change({ id: e.id, version: l.entry(e.id).version, operation: 'stop' });
+  assert.equal(l.entry(e.id).discardedAt, day);
+  f.now(day + 8 * 86400000); l.cleanupDiscarded(); assert.equal(l.entry(e.id), undefined);
+});
+
+test('integrated review writes one authoritative paragraph and uses it across context, projections and manual re-integration', async t => {
+  const f = setup(t); await f.bind(); f.enable(); await f.read('profile-source');
+  const l = f.controller.learning, text = '我更在意交流里真实的回应，愿意承认说到点上的提醒，也喜欢从具体细节里找一点轻巧的幽默，让认真和风趣顺着同一个意思自然接起来。';
+  f.store.set('iteration:123', { version: 4, traits: [
+    { id: 'old-profile-a', text: '先接住意思再补一句。', reason: '旧观察', sourceIds: ['profile-source'] },
+    { id: 'old-profile-b', text: '被问住时不躲。', reason: '旧观察', sourceIds: ['profile-source'] }
+  ] });
+  f.response = run => ({ runId: run.id, integrated_persona: { text, reason: '把接话和认账归纳成真实坦率的交流气质。', source_ids: ['profile-source'] },
+    discarded_trait_ids: [], comparison: '将旧规则融合为整体交流气质，正文不复述每日材料。', expression_decisions: [], report: '', direction: '' });
+  f.nextDay(); const daily = await l.review(); await f.controller.idle();
+  assert.equal(f.store.run(daily.id).state, 'completed'); assert.equal(l.iteration().profile.text, text);
+  assert.match(l.context('123').text, /认真和风趣/); assert.doesNotMatch(l.context('123').text, /先接住意思再补一句|被问住时不躲|旧观察/);
+  assert.equal(l.status().discardedTraits.length, 0, 'absorbed material is not discarded');
+  assert.match(readFileSync(join(f.workspacePath, l.status().projection.path), 'utf8'), /认真和风趣/);
+  const beforeCalls = f.counters.prompt;
+  const manual = await f.controller.dispatch({ action: 'learning_integrate' }); await f.controller.idle();
+  assert.notEqual(manual.id, daily.id); assert.equal(f.store.run(manual.id).state, 'completed');
+  assert.equal(f.counters.prompt, beforeCalls + 1); assert.equal(l.budget().calls, 2);
+  assert.equal(f.store.db.prepare('SELECT COUNT(*) n FROM learning_review_sources').get().n, 1);
+  const exported = await l.archive.export({ reviewId: manual.id });
+  assert.match(readFileSync(join(f.workspacePath, exported.path), 'utf8'), /认真和风趣/);
+});
+
+test('a profile is mandatory for new reviews, list text and invented profile sources are rejected atomically', async t => {
+  for (const invalid of ['missing', 'list', 'source']) {
+    const f = setup(t); await f.bind(); f.enable(); await f.read('invalid-profile-' + invalid); f.nextDay();
+    f.response = run => ({ ...setupResponse(run), integrated_persona: invalid === 'missing' ? undefined : {
+      text: invalid === 'list' ? '1. 先认账\n2. 再解释' : '愿意更坦率地交流。', reason: '尝试整合。', source_ids: [invalid === 'source' ? 'invented-source' : run.learningReview.sources[0].id] } });
+    const { id } = await f.controller.learning.review(); await f.controller.idle();
+    assert.equal(f.store.run(id).state, 'failed'); assert.equal(f.controller.learning.iteration().version, 0);
+  }
+});
+
+test('manual integration can synthesize legacy material without new observations and respects zero budget', async t => {
+  const f = setup(t); await f.bind(); f.enable(); const l = f.controller.learning; f.store.set('learningAccount', '123');
+  f.store.set('iteration:123', { version: 4, traits: [{ id: 'legacy-profile', text: '旧经验', reason: '旧记录', sourceIds: ['legacy-real-source'] }] });
+  f.controller.configure({ learningDailyReviewLimit: 0 });
+  await assert.rejects(f.controller.dispatch({ action: 'learning_integrate' }), { code: 'LEARNING_BUDGET' });
+  f.controller.configure({ learningDailyReviewLimit: 3 });
+  f.response = run => ({ runId: run.id, integrated_persona: { text: '我倾向坦率而具体地回应，也愿意留一点轻松的余地。', reason: '归纳旧经验。', source_ids: ['legacy-real-source'] }, discarded_trait_ids: [],
+    comparison: '将旧记录归纳成整体气质。', expression_decisions: [], report: '', direction: '' });
+  const { id } = await f.controller.dispatch({ action: 'learning_integrate' }); await f.controller.idle();
+  assert.equal(f.store.run(id).state, 'completed'); assert.equal(l.iteration().version, 5); assert.equal(l.budget().calls, 1);
+  assert.equal(f.counters.prompt, 1);
 });

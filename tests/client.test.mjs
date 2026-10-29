@@ -416,9 +416,9 @@ test('persona UI separates user base from autonomous iteration and offers adviso
   nodes.find(n => n?.type === 'button' && n.children.includes('迭代')).props.onClick(); index = 0;
   tree = panel.type(panel.props); nodes = flat(tree); const text = nodes.filter(n => typeof n === 'string').join('');
   assert.match(text, /基础人设 · 由你填写/); assert.match(text, /迭代人设 · 大肥鱼自主选择/);
-  assert.match(text, /不需要逐条批准/); assert.match(text, /每天结束后与过去/);
+  assert.match(text, /按你填写的方向提炼并整合经历/); assert.match(text, /超过7天自动清理/);
   const iteration = nodes.find(n => n?.props?.id === 'bili-iteration'); assert.equal(iteration.props.hidden, false);
-  assert.equal(flat(iteration).filter(n => n?.type === 'textarea').length, 1, 'only advice is editable in the iteration section');
+  assert.equal(flat(iteration).filter(n => n?.type === 'textarea').length, 2, 'direction input and hidden settings share the advisory field');
   assert.equal(flat(iteration).find(n => n?.type === 'textarea').props.value, config.learningAdvice);
   assert.equal(nodes.filter(n => n?.type === 'button' && n.children.some(c => typeof c === 'string' && /批准|应用人设|采纳建议/.test(c))).length, 0);
   assert.equal(nodes.find(n => n?.props?.id === 'bili-tab-persona').props.hidden, true);
@@ -720,4 +720,20 @@ test('settings installation progress follows refreshed status and gates QR creat
   const dependencyNotice = flatten(tree).find(node => node?.type === 'p' && text(node) === '音频依赖已就绪，模型未配置。');
   assert.ok(dependencyNotice); assert.ok(!dependencyNotice.props.className.includes('error'));
   cleanup();
+});
+
+test('integrated persona UI shows one paragraph and keeps old item text inside closed evidence', async t => {
+  const f = fixture(t); await f.bind();
+  f.store.set('iteration:123', { version: 5, profile: { text: '我喜欢坦率具体的交流，也愿意从生活细节中找轻巧的幽默。', reason: '融合旧经历。', sourceRefs: [] },
+    traits: [{ id: 'old-evidence', text: '旧版逐条规则', reason: '旧来源', sourceIds: [] }] });
+  f.store.set('learningAccount', '123');
+  const { settingsHarness, flatten, nodeText } = await import('./settings-harness.mjs');
+  const h = await settingsHarness(f.controller); t.after(h.close);
+  let tree = h.render(); h.button(tree, '人设').props.onClick(); tree = h.render(); h.button(tree, '迭代').props.onClick(); tree = h.render();
+  const paragraph = flatten(tree).find(n => n?.props?.id === 'bili-integrated-persona');
+  assert.equal(nodeText(paragraph), '我喜欢坦率具体的交流，也愿意从生活细节中找轻巧的幽默。');
+  assert.doesNotMatch(nodeText(paragraph), /旧版逐条规则/);
+  const evidence = flatten(tree).find(n => n?.props?.id === 'bili-persona-evidence');
+  assert.equal(evidence.type, 'details'); assert.ok(!evidence.props.open); assert.match(nodeText(evidence), /旧版逐条规则/);
+  assert.ok(h.button(tree, '整合当前人设'));
 });

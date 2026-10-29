@@ -47,7 +47,7 @@ export class LearningArchive {
     const entries = this.db.prepare('SELECT data FROM learning_entries WHERE ' + where + ' ORDER BY rowid DESC LIMIT 10 OFFSET ?').all(...args, offset).map(r => annotate(JSON.parse(r.data)));
     let focus = null;
     if (view.entity && view.entity !== 'iteration') {
-      const e = this.l.entry(view.entity); assert(e?.accountUid === account, 'LEARNING_ENTRY', '该学习档案不存在或不属于当前账号。');
+      const e = this.l.entry(view.entity); assert(e?.accountUid === account, 'LEARNING_ENTRY', '该学习档案已销毁、不存在或不属于当前账号；请返回表达列表。');
       const sourceTotal = count('learning_evidence', 'entry_id=?', [e.id]); view.sourceOffset = page(view.sourceOffset, sourceTotal, 10);
       const sources = this.db.prepare('SELECT data FROM learning_evidence WHERE entry_id=? ORDER BY bvid LIMIT 10 OFFSET ?').all(e.id, view.sourceOffset).map(r => JSON.parse(r.data));
       focus = { entry: annotate(e), sources, sourceTotal, sourceOffset: view.sourceOffset, sourcePageSize: 10 };
@@ -74,13 +74,13 @@ export class LearningArchive {
       reviewPage: { offset: view.reviewOffset, total: reviewTotal, pageSize: 5 }, eventPage: { offset: view.eventOffset, total: eventTotal, pageSize: 10 }, archiveNotice: this.notice || '' };
   }
   inScope(r, binding) {
-    return !!binding && r.accountUid === this.l.account && r.id === 'learn-' + hash([r.accountUid, binding.sessionId, r.start, r.end]).slice(0, 40) &&
+    return !!binding && r.accountUid === this.l.account && r.id === 'learn-' + hash([r.accountUid, binding.sessionId, r.start, r.end, ...(r.integrate ? [r.integrationNonce] : [])]).slice(0, 40) &&
       (!r.sessionId || r.sessionId === binding.sessionId) && (!r.workspace || r.workspace === binding.path);
   }
   write(r, binding) {
     assert(this.inScope(r, binding) && ['completed', 'failed'].includes(r.state), 'LEARNING_EXPORT', '只能将当前账号、原对话的已结束复盘导出到原工作区。');
     const directory = managed(binding.path, ['.bilibili-harness', 'learning-reviews', r.accountUid]), target = join(directory, r.id + '.md');
-    const traits = value => (value?.traits || []).map(t => '- ' + t.text + '\n  原因：' + t.reason).join('\n') || '本次没有迭代条目。';
+    const traits = value => value?.profile ? value.profile.text || '本次未保留迭代人设。' : (value?.traits || []).map(t => '- ' + t.text + '\n  原因：' + t.reason).join('\n') || '本次没有迭代条目。';
     const text = ['# 大肥鱼的日终学习档案', '日期：' + r.day + '；时区：' + r.zone + '；状态：' + r.state,
       '唯一对话：' + binding.sessionId, '记录：' + r.id, '这是数据库的阅读投影，重新导出会覆盖本文件；不读取它作为模型指令。',
       '本文件记录该次比较的取舍，之后的回滚和禁用以面板中的当前状态及变更档案为准。', '',

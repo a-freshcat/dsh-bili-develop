@@ -130,7 +130,7 @@ window.__ModuleLoader__.load({
     const phases = { unbound: '未绑定', creating: '创建中', active: '已绑定', repair: '需要恢复原绑定', archived: '原对话已归档' };
     const evidenceSources = { subtitle: '平台字幕', asr: '讲话转写', frames: '画面抽帧', comments: '评论区样本', interaction: '关键词命中留言' };
     const commentOrders = { hot: '热评', recent: '最新评论' };
-    const learningStates = { candidate: '观察候选', active: '已采用', reduced: '少用', inactive: '已停用', blocked: '用户禁用', archived: '已归档' };
+    const learningStates = { candidate: '观察候选', active: '已采用', reduced: '少用', inactive: '已丢弃', blocked: '用户禁用', archived: '已丢弃（旧归档）' };
     const learningActions = { observe: '观察表达', draft_use: '草稿使用', archive: '归档', block: '禁用', unblock: '恢复候选',
       reduce: '降低频率', stop: '停用', rollback: '回滚', adopt: '采用', daily_compare: '日终比较' };
     const commentModes = [
@@ -214,6 +214,8 @@ window.__ModuleLoader__.load({
       const [interactionSettingsPane, setInteractionSettingsPane] = React.useState('send');
       const [publishedSearch, setPublishedSearch] = React.useState('');
       const [recordPane, setRecordPane] = React.useState('browse');
+      const [managedUrl, setManagedUrl] = React.useState('');
+      const accountQuery = React.useRef({offset:0,kind:'all',state:'all'});
       const mounted = React.useRef(false);
       const working = React.useRef(false);
       const page = React.useRef(0);
@@ -260,12 +262,13 @@ window.__ModuleLoader__.load({
         const requestedPrivate = privateQuery.current;
         const requestedInteractions = interactionQuery.current;
         const requestedPublished = publishedQuery.current;
+        const requestedAccountView = accountQuery.current;
         const requestedPending = pendingQuery.current, requestedRecord = focusedRecord.current, requestedHistory = historyQuery.current;
         const value = await api({ action: 'status', offset: page.current, contactsOffset: contactPage.current.offset, contactQuery: contactPage.current.query, learningOffset: learningPage.current,
-          weeklyOffset: weeklyPage.current, filters: requestedHistory, recordId: requestedRecord, pendingView: requestedPending,
+          weeklyOffset: weeklyPage.current, filters: requestedHistory, recordId: requestedRecord, pendingView: requestedPending, accountView: requestedAccountView,
           learningView: requestedLearning, privateView: requestedPrivate, interactionView: requestedInteractions, publishedView: requestedPublished });
         if (!mounted.current || requestedLearning !== learningQuery.current || requestedPrivate !== privateQuery.current || requestedInteractions !== interactionQuery.current || requestedPublished !== publishedQuery.current ||
-          requestedPending !== pendingQuery.current || requestedRecord !== focusedRecord.current || requestedHistory !== historyQuery.current) return;
+          requestedAccountView !== accountQuery.current || requestedPending !== pendingQuery.current || requestedRecord !== focusedRecord.current || requestedHistory !== historyQuery.current) return;
         setStatus(value);
         if (value.social?.privateView) {
           if (requestedPrivate.account && requestedPrivate.account !== value.social.privateView.account) setPrivateSearch('');
@@ -484,14 +487,16 @@ window.__ModuleLoader__.load({
       const weeklyStates = { generating: '原对话生成中', draft: '待核对图文', approved: '已审核，等待确认发布', sending: '正在发布', accepted: '平台记录已确认',
         unknown: '结果未知，不重发', not_submitted: '上传未完成，动态未提交', rejected: '平台拒绝，不重发', failed: '生成未完成', discarded: '内容已清除' };
       const commentStates = { draft: '尚未发送', sending: '等待平台回执', sent: '平台已接收', unknown: '结果待核对，不重发', failed: '发送未完成，不重发', cancelled: '已取消' };
+      const commentVisibility = d =>
+          d.publicList?.state === 'found' ? '未登录最新评论样本中找到（' + d.publicList.sampleCount + '条样本）。' :
+          d.publicList?.state === 'not_in_sample' ? '当前账号可读，未登录最新评论样本未见（' + d.publicList.sampleCount + '条样本）；公开可见性未确认。' :
+          d.publicList?.state === 'unavailable' ? '未登录列表检查暂不可用；公开可见性未确认。' : '已取得平台回执或账号内记录；公开可见性未确认。';
       const publication = d => h(React.Fragment, null,
         h('p', { className: 'muted' }, commentStates[d.state] || d.state, ' · 发送账号 UID ', d.accountUid),
         h('strong', null, '大肥鱼 · ', d.state === 'draft' ? d.target ? '回复草稿' : '评论草稿' : commentStates[d.state]),
         h('blockquote', { className: 'self-comment' }, d.text || '本地文案已清理。'),
         d.state === 'sent' && h('p', { className: 'muted' },
-          d.publicList?.state === 'found' ? '未登录最新评论样本中找到（' + d.publicList.sampleCount + '条样本）。' :
-          d.publicList?.state === 'not_in_sample' ? '当前账号可读，未登录最新评论样本未见（' + d.publicList.sampleCount + '条样本）；公开可见性未确认。' :
-          d.publicList?.state === 'unavailable' ? '未登录列表检查暂不可用；公开可见性未确认。' : '已取得平台回执或账号内记录；公开可见性未确认。',
+          commentVisibility(d),
           d.publicList?.checkedAt ? ' 核对时间：' + dateText(d.publicList.checkedAt) : '评论定位页可读也不代表“最新”列表已展示。'),
         d.mentions?.length > 0 && h('p', { className: 'muted' }, '提及：', d.mentions.map(t => t.name + '（UID ' + t.uid + '）').join('、'),
           d.state === 'sent' ? d.mentionState === 'rendered' ? ' · 回执含提及信息，通知是否到达请在B站确认。' : ' · 提及效果待平台确认。' : ''),
@@ -580,6 +585,17 @@ window.__ModuleLoader__.load({
           person.drafts > 0 && h('span', { className: 'pending-badge' }, person.drafts, '份草稿')),
         h('span', { className: 'dm-person-meta' }, 'UID ', person.uid, ' · ', person.total, '条记录'),
         h('span', { className: 'dm-person-meta' }, person.latestAt ? dateText(person.latestAt) : '尚无私信记录'));
+      const privateSendBlocked = m => {
+        if (!(m.kind === 'proactive' ? config.dmProactiveEnabled : social.enabled)) return m.kind === 'proactive' ? '主动私信未开启。' : '私信读取与回复未开启。';
+        if (social.paused) return '私信已暂停，请先继续私信。';
+        if (!m.eligibility?.allowed) return m.eligibility?.reason || '联系人尚未具备回复资格。';
+        if (active) return '等待当前模型任务结束。';
+        if (installing) return '等待依赖准备结束。';
+        if (social.busy) return '等待当前私信检查或发送结束。';
+        if (busy) return '等待当前操作完成。';
+        if (status.privacy?.privateRecipientCount > 1 && !privacyChecked('dm:' + m.id)) return '请先勾选本条隐私审核；这不会改变联系人回复资格。';
+        return '';
+      };
       const privateMessage = m => h('details', { className: 'dm-message', key: m.id, id: 'bili-private-' + m.id, 'data-message-id': m.id,
         ...(focusedPrivate.current === m.id ? { open: true } : {}) },
         h('summary', null, dateText(m.at), ' · ', m.kind === 'proactive' ? '主动问候 · ' : '', privateStates[m.state] || m.state),
@@ -588,11 +604,14 @@ window.__ModuleLoader__.load({
         h('p', { className: 'message-label' }, m.kind === 'proactive' ? '大肥鱼 · 主动问候' : '大肥鱼 · 回复'),
         h('blockquote', { className: 'self-comment' }, m.draft || '无回复草稿。'),
         m.evaluation && h('details', { className: 'dm-evaluation' }, h('summary', null, '评价与判断依据'), h('p', null, m.evaluation)),
-        m.reason && h('p', { className: 'muted' }, m.reason),
+        m.reason && h('p', { className: 'muted' }, m.state === 'draft' ? '上次处理：' : '', m.reason),
         m.state === 'draft' && (status.privacy?.privateRecipientCount > 1) && privacyCheckbox('dm:' + m.id),
+        m.state === 'draft' && privateSendBlocked(m) && h('p', { className: 'notice', role: 'status' }, '当前不能发送：', privateSendBlocked(m)),
+        m.state === 'draft' && !m.eligibility?.allowed && h('button', { type: 'button', disabled: busy,
+          onClick: () => { setTab('people'); setPeopleView('contacts'); setContactQuery(m.uid); setContactOffset(0);
+            contactPage.current = { offset: 0, query: m.uid }; return act('status'); } }, '查看联系人评分'),
         m.state === 'draft' && button('发送这条私信草稿', 'dm_send', { id: m.id, privacyReviewed: privacyChecked('dm:' + m.id), privacyContext: status.privacy?.contextHash },
-          !(m.kind === 'proactive' ? config.dmProactiveEnabled : social.enabled) || social.paused || !m.eligibility.allowed || !!active || installing || !!social.busy ||
-          status.privacy?.privateRecipientCount > 1 && !privacyChecked('dm:' + m.id)),
+          !!privateSendBlocked(m)),
         !['evaluating', 'sending'].includes(m.state) && (deleting === 'dm:' + m.id ?
           h('div', { className: 'row' }, button('确认清理私信内容', 'dm_forget', { id: m.id }, !!active || installing || !!social.busy),
             h('button', { onClick: () => setDeleting('') }, '保留内容')) :
@@ -647,6 +666,31 @@ window.__ModuleLoader__.load({
         privateQuery.current = { account: status.social.accountUid, uid: item.uid, offset: item.messageOffset || 0, peopleOffset: 0, q: '' };
         try { await refresh(); scrollToRecord('bili-private-' + item.id); } catch (e) { setError(e.message); }
       };
+      const accountView = patch => {accountQuery.current={...accountQuery.current,...patch};return refresh();};
+      const renderAccountRecords = () => {
+        const a=status.accountManagement;if(!a)return null;
+        const labels={generating:'生成中',draft:'草稿待发',declined:'决定不回复',failed:'处理失败',sending:'发送中',sent:'平台已接收',unknown:'结果不明，不重发',cleared:'已清理'};
+        return h('div',{id:'bili-history-account',className:'record-panel',hidden:recordPane!=='account'},
+          h('h3',null,'账号管理 · 评论处理记录'),h('p',{className:'muted'},'只记录当前登录账号自己视频、动态下的评论处理，与浏览互动分开。'),
+          h('div',{className:'row'},...['all','video','dynamic'].map(kind=>h('button',{type:'button',key:kind,onClick:()=>accountView({kind,offset:0}),'aria-pressed':a.view.kind===kind},({all:'全部内容',video:'视频评论',dynamic:'动态评论'})[kind])),
+            h('select',{'aria-label':'账号记录状态',value:a.view.state,onChange:e=>accountView({state:e.target.value,offset:0})},...['all','draft','sent','unknown','failed','declined'].map(s=>h('option',{key:s,value:s},s==='all'?'全部状态':labels[s])))),
+          ...a.records.map(r=>h('details',{key:r.id,className:'record-card','data-account-record':r.id},
+            h('summary',null,h('strong',null,r.resource.type==='video'?'视频 · ':'动态 · ',r.resource.title),h('span',{className:'muted record-meta'},labels[r.state]||r.state,' · ',dateText(r.target.at))),
+            h('a',{href:r.resource.url,target:'_blank',rel:'noopener noreferrer'},'查看原内容'),
+            h('p',{className:'muted'},'留言者 UID ',r.target.uid,' · 评论 ',r.target.id),
+            h('h4',null,r.target.level==='sub'?'楼中楼 · 原留言':'普通评论 · 原留言'),h('blockquote',{className:r.target.level==='sub'?'sub-comment':'root-comment'},r.target.text),
+            r.draft&&h(React.Fragment,null,h('h4',null,'大肥鱼 · 回复'),h('blockquote',{className:'self-comment'},r.draft)),
+            r.evaluation&&h('details',null,h('summary',null,'查看本次评价'),h('p',null,r.summary),h('p',null,r.evaluation)),
+            h('p',{className:r.state==='failed'||r.state==='unknown'?'notice error':'muted'},r.reason),
+            r.state==='draft'&&status.privacy?.sharedPrivateContext&&config.commentPrivacyMode!=='content'&&h('label',{className:'row'},h('input',{type:'checkbox',checked:confirmComment===r.id,onChange:e=>setConfirmComment(e.target.checked?r.id:'')}),'已人工检查这条公开回复没有私密内容'),
+            h('div',{className:'row'},r.state==='draft'&&button('发送这条账号回复','account_publish',{requestId:r.id,revision:r.revision,privacyReviewed:confirmComment===r.id,privacyContext:status.privacy?.contextHash},config.accountReplyMode==='preview'||!config.accountReplyEnabled||a.paused||status.comments?.paused||!!active),
+              ['draft','failed','declined'].includes(r.state)&&!r.attemptedAt&&button('重新生成（仅预览）','account_retry',{requestId:r.id},!!active||!config.accountReplyEnabled||a.paused),
+              ['unknown','sent'].includes(r.state)&&button('只读核对账号回复','account_verify',{requestId:r.id},!!active)))),
+          !a.records.length&&h('p',{className:'muted'},'当前筛选没有账号评论处理记录。'),
+          h('div',{className:'row'},h('button',{disabled:busy||a.view.offset===0,onClick:()=>accountView({offset:a.view.offset-10})},'上一页账号记录'),
+            h('span',null,a.total?' '+(a.view.offset+1)+'—'+Math.min(a.view.offset+10,a.total)+' / '+a.total:'0 / 0'),
+            h('button',{disabled:busy||a.view.offset+10>=a.total,onClick:()=>accountView({offset:a.view.offset+10})},'下一页账号记录')));
+      };
       const renderPending = () => {
         const p = status.history?.pending;
         if (!p) return null;
@@ -677,7 +721,7 @@ window.__ModuleLoader__.load({
       };
       const renderPublished = () => h('div', { id: 'bili-published-comments', className: 'record-panel', hidden: recordPane !== 'published' },
             h('h4', null, '已发评论 · 共 ', published?.total || 0, ' 条'),
-            h('p', { className: 'muted' }, '汇总当前账号已确认发送的主动评论、关键词回复与楼中楼接话。平台接收不保证其他账号可见；结果未知的尝试仍在原记录中核对。'),
+            h('p', { className: 'muted' }, '此处统计平台已接收的评论，不代表公开可见或@通知已送达。每条单独显示可见性；结果未知的尝试仍在原记录中核对。'),
             h('label', null, h('span', null, '按视频、BV号或评论内容查找'), h('input', { value: publishedSearch, maxLength: 100,
               onChange: e => setPublishedSearch(e.target.value), disabled: busy })),
             h('div', { className: 'row' }, h('button', { disabled: busy, onClick: () => {
@@ -689,8 +733,11 @@ window.__ModuleLoader__.load({
               h('strong', null, d.title || d.bvid), h('p', { className: 'muted' }, d.target ? d.target.level === 'sub' ? '楼中楼接话' : '回复普通留言' : '主动视频评论',
                 ' · ', dateText(d.attemptedAt || d.confirmedAt)),
               h('blockquote', { className: 'self-comment' }, d.text || '本地文案已清理。'),
+              h('p', { className: 'notice' }, '平台已接收 · ', commentVisibility(d), d.publicList?.checkedAt ? ' 核对时间：' + dateText(d.publicList.checkedAt) : ''),
+              d.mentions?.length > 0 && h('p', { className: 'muted' }, d.mentionState === 'rendered' ? '回执含提及信息，通知是否到达请在B站确认。' : '提及效果与通知送达尚未确认。'),
               h('div', { className: 'row' }, h('a', { href: 'https://www.bilibili.com/video/' + d.bvid + '/#reply' + d.receipt, target: '_blank', rel: 'noopener noreferrer' }, '打开已发评论'),
-                h('button', { disabled: busy, onClick: () => openRecord(d.id) }, '查看这条评论的记录')))),
+                h('button', { disabled: busy, onClick: () => openRecord(d.id) }, '查看这条评论的记录'),
+                button('只读核对可见性', 'verify_comment', { requestId: d.id }, sendingBlocked || !!d.contentCleared)))),
               !published?.rows?.length && h('p', { className: 'dm-empty' }, '暂无匹配的已确认发送评论。')),
             published && h('div', { className: 'row' }, h('button', { disabled: busy || !published.offset, onClick: () => {
               publishedQuery.current = { ...publishedQuery.current, offset: Math.max(0, published.offset - published.pageSize) }; return refresh();
@@ -766,15 +813,35 @@ window.__ModuleLoader__.load({
             '发送方式：', ({ preview: '仅预览', manual: '逐条确认', auto: '自动评论' })[status.config.commentMode] || '仅预览', comments?.paused ? ' · 已暂停' : ''),
           h('span', { className: 'badge' }, phases[binding.phase] || binding.phase),
           h('span', { className: 'badge' }, account ? accountStates[account.status] || account.status : '登录待检查'),
-          h('span', { className: 'badge' }, '记录 ' + status.total),
+          h('span', { className: 'badge' }, '记录 ' + (status.total+(status.accountManagement?.recordCount||0))),
           budget && h('span', { className: 'badge' }, '今日分析 ' + budget.analyses + '/' + budget.analysisLimit),
           h('span', { className: 'muted' }, status.version)),
         error && h('p', { className: 'notice error', role: 'alert' }, error),
         message && h('p', { className: 'notice', role: 'status' }, message),
         h('nav', { className: 'tabs', role: 'tablist', 'aria-label': 'B站浏览设置' },
-          ...[['browse', '浏览'], ['interaction', '互动'], ['persona', '人设'], ['people', '关系'], ['weekly', '动态'], ['history', '记录'], ['advanced', '高级']].map(([id, label]) =>
+          ...[['browse', '浏览'], ['interaction', '互动'], ['account', '账号管理'], ['persona', '人设'], ['people', '关系'], ['weekly', '动态'], ['history', '记录'], ['advanced', '高级']].map(([id, label]) =>
             h('button', { key: id, role: 'tab', 'aria-selected': tab === id,
               'aria-controls': 'bili-tab-' + id, onClick: () => setTab(id) }, label))),
+        status.accountManagement&&h('section',{id:'bili-tab-account',hidden:tab!=='account'},
+          h('h3',null,'账号管理'),h('p',{className:'muted'},'管理当前登录账号自己发布的视频和动态下的普通评论、楼中楼。不使用浏览关键词，不占浏览轮次。'),
+          h('p',{className:'muted'},'当前管理账号 UID：',status.accountManagement.accountUid||'尚未检查登录'),
+          h('p',{className:'notice'},status.accountManagement.enabled?'已开启 · '+(status.accountManagement.paused?'已暂停':({preview:'仅预览',manual:'逐条确认',auto:'自动回复'})[config.accountReplyMode]):'默认关闭；开启并保存后，只自动处理开启后收到的新留言。'),
+          h('p',{className:'muted'},'今日生成 ',status.accountManagement.budget.evaluations,'/',config.accountReplyDailyEvaluations,' · 回复尝试 ',status.accountManagement.budget.attempts,'/',config.accountReplyDailyLimit),
+          h('p',{className:'muted'},status.accountManagement.waitReason,status.accountManagement.nextPoll?' · 下次自动检查：'+dateText(status.accountManagement.nextPoll):''),
+          h('label',null,h('span',null,'指定自己发布的视频或动态（选填，核实后加入额外轮查）'),h('input',{value:managedUrl,placeholder:'BV号、视频链接或动态链接；留空轮流检查最近发布',onChange:e=>setManagedUrl(e.target.value)})),
+          h('div',{className:'row'},button('检查账号新评论','account_scan',{url:managedUrl},!config.accountReplyEnabled||!!active),
+            button('读取已有评论（仅生成预览）','account_scan',{url:managedUrl,history:true},!config.accountReplyEnabled||!!active),
+            button(status.accountManagement.paused?'继续账号管理':'暂停账号管理',status.accountManagement.paused?'account_resume':'account_pause'),
+            h('button',{onClick:()=>{setTab('history');setRecordPane('account');}},'查看账号管理记录')),
+          status.accountManagement.notice&&h('p',{className:'notice',role:'status'},status.accountManagement.notice),
+          status.accountManagement.watched?.length>0&&h('details',null,h('summary',null,'额外轮查内容 · ',status.accountManagement.watched.length,' / 50'),...status.accountManagement.watched.map(r=>h('div',{key:r.type+':'+r.id,className:'row'},h('span',null,r.type==='video'?'视频 · ':'动态 · ',r.title),button('移出额外轮查','account_unwatch',{resourceKey:r.type+':'+r.id},!!active)))),
+          h('details',null,h('summary',null,'账号管理 · 回复设置'),
+            ...[['accountReplyEnabled','启用账号评论读取与回复'],['accountReplyVideos','检查自己视频的评论'],['accountReplyDynamics','检查自己动态的评论']].map(([key,label])=>h('label',{key,className:'row'},h('input',{type:'checkbox',checked:!!config[key],onChange:e=>setConfig({...config,[key]:e.target.checked})}),label)),
+            h('label',null,h('span',null,'账号回复方式（独立于浏览互动）'),h('select',{value:config.accountReplyMode,onChange:e=>setConfig({...config,accountReplyMode:e.target.value})},...[['preview','仅预览'],['manual','逐条确认'],['auto','自动回复']].map(([v,t])=>h('option',{key:v,value:v},t)))),
+            h('div',{className:'two'},field('每日最多生成次数（0关闭）','accountReplyDailyEvaluations','number'),field('每日最多回复尝试（0关闭）','accountReplyDailyLimit','number'),field('每次最多生成条数（1～10）','accountReplyPerCheck','number'),field('自动检查间隔秒（60～3600）','accountReplyPollSeconds','number')),
+            h('p',{className:'muted'},'每次轮流检查最近10个视频、10条动态及额外清单中的一篇；读取最近20条顶层及前5个线程的楼中楼。旧内容可粘贴链接核实后加入轮查；读取已有评论只生成预览。自动检查沿用浏览活动时段，DSH需运行。'),
+            h('p',{className:'muted'},'账号回复仍受全局评论每日额度、最短间隔、评论暂停及隐私检查限制。未知结果不重发；不会点赞、删评或管理其他账号。'),
+            button('保存账号管理设置','configure',{config:Object.fromEntries(['accountReplyEnabled','accountReplyMode','accountReplyVideos','accountReplyDynamics','accountReplyPollSeconds','accountReplyDailyLimit','accountReplyDailyEvaluations','accountReplyPerCheck'].map(k=>[k,config[k]]))},!!active,true))),
         weekly && h('section', { id: 'bili-tab-weekly', hidden: tab !== 'weekly', className: 'persona-pane' },
           h('h3', null, '周总结图文 · 审核后发布'),
           h('p', { className: 'muted' }, '最近7天已读公开素材；沿用原汇总对话。确认发布前不会上传图片，始终需要你审核和确认发布。'),
@@ -962,14 +1029,30 @@ window.__ModuleLoader__.load({
           h('p', { className: 'muted' }, '这一层只由你修改。大肥鱼自己的变化在“迭代”子页，始终服从这里的基础设定。“保存基础人设”提交本页的人设、字数限制与使用者身份；学习设置在“设置”子页单独保存。')),
         status.learning && h('section', { id: 'bili-iteration', className: 'persona-pane', hidden: tab !== 'persona' || personaView === 'base' },
           h('h3', null, ({ iteration: '迭代人设 · 大肥鱼自主选择', expressions: '表达记忆', review: '日终比较与学习汇报', settings: '学习设置' })[personaView]),
-          personaView === 'iteration' && h('p', { className: 'muted' }, '每天结束后与过去的迭代和学习记忆比较，再决定保留、调整或淘汰；你只提供建议，不需要逐条批准。'),
+          ['iteration', 'expressions'].includes(personaView) && h('div', { className: 'iteration-card' },
+            h('label', null, h('span', null, '迭代方向与表达要求（可选）'),
+              h('textarea', { rows: 3, maxLength: 1000, value: config.learningAdvice || '', disabled: sendingBlocked,
+                placeholder: '例如：多一些观察生活的幽默，把梗融进具体类比；合并重复习惯，丢弃无用记录。',
+                onChange: e => setConfig({ ...config, learningAdvice: e.target.value }) })),
+            button('保存迭代方向', 'configure', { config: { learningAdvice: config.learningAdvice || '' } }, sendingBlocked, true),
+            h('p', { className: 'muted' }, '方向同时用于人设与表达整合；下一次复盘生效，基础人设始终优先。')),
+          personaView === 'iteration' && h('p', { className: 'muted' }, '按你填写的方向提炼并整合经历，合并重复习惯，不把每日记录逐条堆进人设。丢弃后7天内可拾回，超过7天自动清理；DSH关闭期间到期的记录在下次运行时清理。'),
+          personaView === 'iteration' && h('details', null, h('summary', null, '丢弃区 · ', (status.learning.discardedTraits || []).length, '条'),
+            ...(status.learning.discardedTraits || []).map(t => h('div', { key: t.id }, h('p', null, t.text),
+              h('p', { className: 'muted' }, '销毁时间：', dateText(t.expiresAt)),
+              button('拾回这条人设', 'learning_change', { id: t.id, version: status.learning.iteration.version, operation: 'restore_trait' }, sendingBlocked)))),
           h('div', null,
           h('div', { className: 'iteration-card', hidden: personaView !== 'iteration' },
             h('strong', null, '迭代版本 ', status.learning.iteration.version, ' · ', status.learning.enabled ? '自主学习已开启' : '自主学习已关闭'),
-            status.learning.iteration.traits.length ? status.learning.iteration.traits.map(t => h('details', { key: t.id },
-              h('summary', null, t.text), h('p', null, t.reason), h('p', { className: 'muted' }, '来源：',
-                t.sourceRefs?.length ? t.sourceRefs.map((s, i) => h(React.Fragment, { key: i }, s.url ? h('a', { href: s.url, target: '_blank', rel: 'noopener noreferrer' }, s.title || s.bvid) : h('span', null, s.title), ' ')) : '保留在对应日终复盘中。'))) :
-              h('p', { className: 'muted' }, '尚未形成迭代人设；没有足够的新经历时可以保持不变。')),
+            h('p', { id: 'bili-integrated-persona' }, status.learning.iteration.profile ?
+              status.learning.iteration.profile.text || '当前没有需要保留的迭代人设。' : status.learning.iteration.traits.length ?
+                '现有内容是旧版学习条目，尚未融合成整体人设。点击“整合当前人设”，生成一段连贯正文。' : '尚未形成迭代人设；没有足够的新经历时可以保持不变。'),
+            h('details', { id: 'bili-persona-evidence' }, h('summary', null, '整合依据与历史素材'),
+              status.learning.iteration.profile && h('p', null, status.learning.iteration.profile.reason),
+              ...(status.learning.iteration.profile?.sourceRefs || []).map((s, i) => h('p', { key: 'profile-' + i },
+                s.url ? h('a', { href: s.url, target: '_blank', rel: 'noopener noreferrer' }, s.title || s.bvid) : '来源保留在复盘档案中。')),
+              ...status.learning.iteration.traits.map(t => h('details', { key: t.id }, h('summary', null, t.text), h('p', null, t.reason),
+                ...(t.sourceRefs || []).map((s, i) => h('p', { key: i }, s.url ? h('a', { href: s.url, target: '_blank', rel: 'noopener noreferrer' }, s.title || s.bvid) : '来源保留在复盘档案中。')))))),
           personaView === 'iteration' && status.feedback && h('details', null, h('summary', null, '交流反馈与私信复盘素材（', status.feedback.total, '份）'),
             h('p', { className: 'muted' }, '只是反思候选，日终比较后由大肥鱼决定是否采纳；私信仅保留固定表达建议，不保存原文或身份。'),
             button('检查评论回复反馈', 'feedback_scan', {}, sendingBlocked || !status.feedback.enabled || !!browsing?.round),
@@ -1004,7 +1087,7 @@ window.__ModuleLoader__.load({
             timeField('日终复盘时间（比较上一完整日）', 'learningDailyTime'),
             field('每天最多复盘调用（0停止复盘，含补做历史日）', 'learningDailyReviewLimit', 'number'),
             h('p', { className: 'muted' }, '采用浏览统计时区 ' + config.timeZone + '。DSH保持运行且原对话/浏览轮次空闲后执行；重启处理未复盘的完整日，同一材料不重复统计。'),
-            h('label', null, h('span', null, '我给大肥鱼的建议（可选，由它判断是否采纳）'),
+            h('label', null, h('span', null, '迭代方向与表达要求（可选）'),
               h('textarea', { rows: 3, maxLength: 1000, value: config.learningAdvice || '', disabled: sendingBlocked,
                 onChange: e => setConfig({ ...config, learningAdvice: e.target.value }) })),
             checkbox('复盘时向我汇报每日学习情况', 'learningDailyReport'),
@@ -1013,15 +1096,18 @@ window.__ModuleLoader__.load({
             checkbox('汇报中附上它选择的后续探索方向', 'learningDirectionSuggestions'),
             h('p', { className: 'muted' }, '关闭汇报仍会比较并迭代。基础人设不会被覆盖；私信只派生脱敏复盘线索。每次只加载少量表达，不要求每句话都带梗。')),
           h('div', { className: 'row', hidden: !['iteration', 'review'].includes(personaView) }, button('复盘上一完整日', 'learning_review', {}, sendingBlocked || !!browsing?.round || !status.learning.enabled || !status.learning.accountUid),
+            button('整合当前人设', 'learning_integrate', {}, sendingBlocked || !!browsing?.round || !status.learning.enabled || !status.learning.accountUid),
             button('更新工作区学习快照', 'learning_project', {}, sendingBlocked || !status.learning.accountUid)),
+          personaView === 'iteration' && h('p', { className: 'muted' }, '整合当前人设会调用原对话一次，使用旧人设与近7天真实素材重写正文；今天已复盘也可整合，占用复盘额度，不重复增加学习统计。'),
           status.learning.budget && h('p', { className: 'muted', hidden: personaView === 'expressions' }, '今日复盘调用 ', status.learning.budget.calls, '/', status.learning.budget.limit, '；等待、失败与结果未知不会自动重投。'),
           status.learning.notice && h('p', { className: 'notice' }, status.learning.notice),
           status.learning.projection?.state === 'failed' && h('p', { className: 'notice error' }, status.learning.projection.message),
           status.learning.archiveNotice && h('p', { className: 'notice error' }, status.learning.archiveNotice),
           inline('learning'),
           h('div', { id: 'bili-learning-expressions', hidden: personaView !== 'expressions' },
+            h('p', { className: 'muted' }, '复盘整合含义、场景与用法，评论时尝试类比、反差和梗的活用，优先自然贴题。已丢弃表达7天内可拾回为候选；超过7天自动销毁。'),
             h('p', { className: 'muted' }, '候选 ', status.learning.counts.candidate, ' · 采用 ', status.learning.counts.active, ' · 降频 ', status.learning.counts.reduced,
-              ' · 停用 ', status.learning.counts.inactive, ' · 禁用 ', status.learning.counts.blocked, ' · 归档 ', status.learning.counts.archived || 0, '。同一视频只算一个独立来源，至少两个来源才可自主采用。'),
+              ' · 丢弃 ', status.learning.counts.inactive, ' · 禁用 ', status.learning.counts.blocked, ' · 旧归档 ', status.learning.counts.archived || 0, '。同一视频只算一个独立来源，至少两个来源才可自主采用。'),
             !status.learning.focus && h('details', { id: 'bili-learning-filter' }, h('summary', null, '搜索与筛选表达', learningView.q || learningView.state && learningView.state !== 'all' ? ' · 已筛选' : ''),
               h('label', null, h('span', null, '搜索表达、含义或适用场景'), h('input', { value: learningSearch?.q || '', maxLength: 100, disabled: busy,
                 onChange: e => setLearningSearch({ ...learningSearch, q: e.target.value }) })),
@@ -1050,6 +1136,9 @@ window.__ModuleLoader__.load({
                 h('button', { disabled: busy, onClick: () => changeLearningView({ entity: e.id, sourceOffset: 0, eventOffset: 0 }) }, '查看完整来源与变更'),
                 button(e.state === 'blocked' ? '解除禁用，恢复候选' : '禁用这个表达', 'learning_change', { id: e.id, version: e.version, operation: e.state === 'blocked' ? 'unblock' : 'block' }, sendingBlocked),
                 e.state !== 'blocked' && button('降低使用频率', 'learning_change', { id: e.id, version: e.version, operation: 'reduce' }, sendingBlocked),
+                e.state !== 'blocked' && button(['inactive', 'archived'].includes(e.state) ? '拾回为候选' : '丢弃这个表达', 'learning_change',
+                  { id: e.id, version: e.version, operation: ['inactive', 'archived'].includes(e.state) ? 'restore' : 'stop' }, sendingBlocked),
+                Number.isFinite(e.discardedAt) && h('p', { className: 'muted' }, '销毁时间：', dateText(e.discardedAt + 7 * 86400000)),
                 e.rollbackEventId && (learningConfirm === e.id ? button('确认回滚此表达', 'learning_change', { id: e.id, version: e.version, operation: 'rollback', eventId: e.rollbackEventId }, sendingBlocked) :
                   h('button', { disabled: sendingBlocked, onClick: () => setLearningConfirm(e.id) }, '回滚最近变化'))))),
             h('div', { className: 'row' }, h('button', { disabled: busy || learningOffset === 0, onClick: () => { const next = Math.max(0, learningOffset - 10); setLearningOffset(next); learningPage.current = next; act('status'); } }, '上10条表达'),
@@ -1068,9 +1157,10 @@ window.__ModuleLoader__.load({
             ...status.learning.reviews.map(r => h('details', { key: r.id }, h('summary', null, r.day, ' · ', ({ reading: '等待复盘', completed: '已比较', failed: '未应用，保留旧状态' })[r.state] || r.state),
               h('p', { className: 'muted' }, dateText(r.start), '—', dateText(r.end), ' · ', r.zone, ' · 本期 ', r.stats.observations, '次记录 / ', r.stats.videos, '个独立视频'),
               h('p', null, r.comparison || r.error || '等待原对话完成；不会重复投递。'),
-              r.expressionChanges?.map(e => h('p', { key: e.id }, e.expression, ' · ', ({ adopt: '采用', reduce: '降频', stop: '停用' })[e.action], '：', e.reason)),
-              r.iterationAfter && h('div', { className: 'two' }, h('div', null, h('strong', null, '比较前'), ...r.iterationBefore.traits.map(t => h('p', { key: t.id }, t.text))),
-                h('div', null, h('strong', null, '选择保留后的迭代'), ...r.iterationAfter.traits.map(t => h('p', { key: t.id }, t.text)))),
+              r.expressionChanges?.map(e => h('p', { key: e.id }, e.expression, ' · ', ({ adopt: '采用', reduce: '降频', stop: '丢弃', revise: '整合用法' })[e.action], '：', e.reason)),
+              r.iterationAfter && h('div', { className: 'two' }, h('div', null, h('strong', null, '比较前'),
+                r.iterationBefore.profile ? h('p', null, r.iterationBefore.profile.text) : r.iterationBefore.traits.map(t => h('p', { key: t.id }, t.text))),
+                h('div', null, h('strong', null, '整合后的迭代人设'), r.iterationAfter.profile ? h('p', null, r.iterationAfter.profile.text) : r.iterationAfter.traits.map(t => h('p', { key: t.id }, t.text)))),
               r.report && h('pre', null, r.report), r.direction && h('p', null, '后续探索：', r.direction),
               r.omittedSources > 0 && h('p', { className: 'muted' }, '仅选取30条材料，其余 ', r.omittedSources, '条未提供给本轮模型。'),
               r.state === 'reading' && button('核对原复盘结果', 'reconcile', { requestId: r.id }, busy),
@@ -1465,9 +1555,10 @@ window.__ModuleLoader__.load({
             h('p', { className: 'muted' }, '解除等待只适用于原对话已停止的任务，之后仍可核对原结果。'))),
         h('section', { id: 'bili-tab-history', hidden: tab !== 'history' }, h('h3', null, '记录'),
           h('nav', { className: 'subtabs record-tabs', role: 'tablist', 'aria-label': '记录分区' },
-            ...[['browse', '浏览记录'], ['interactions', '互动记录'], ['published', '已发评论'], ['pending', '待处理']].map(([id, label]) =>
-              h('button', { key: id, role: 'tab', 'aria-selected': recordPane === id, 'aria-controls': id === 'browse' ? 'bili-history-browse' : id === 'interactions' ? 'bili-history-interactions' : id === 'published' ? 'bili-published-comments' : 'bili-history-pending',
+            ...[['browse', '浏览记录'], ['interactions', '互动记录'], ['published', '已发评论'], ['pending', '待处理'], ['account', '账号管理']].map(([id, label]) =>
+              h('button', { key: id, role: 'tab', 'aria-selected': recordPane === id, 'aria-controls': id === 'browse' ? 'bili-history-browse' : id === 'interactions' ? 'bili-history-interactions' : id === 'published' ? 'bili-published-comments' : id==='account'?'bili-history-account':'bili-history-pending',
                 onClick: () => setRecordPane(id) }, label))),
+          renderAccountRecords(),
           status.history?.pending?.manual > 0 && h('div', { className: 'record-attention', role: 'status' },
             h('span', null, '有 ', status.history.pending.manual, ' 条需要人工处理'),
             h('button', { type: 'button', disabled: busy, onClick: () => changePendingView({ filter: 'manual', offset: 0 }) }, '查看待处理条目')),

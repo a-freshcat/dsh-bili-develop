@@ -3,6 +3,20 @@ import assert from 'node:assert/strict';
 import { fixture, BV } from './fixtures.mjs';
 import { settingsHarness, flatten, nodeText } from './settings-harness.mjs';
 
+test('each accepted comment exposes visibility and mention uncertainty beside its own readonly verification', async t => {
+  const f=fixture(t);await f.bind();f.store.set('commentAccount','123');
+  f.controller.comments.save({id:'receipt-only',accountUid:'123',bvid:BV,state:'sent',text:'收到回执。',receipt:'555',mentions:[{uid:'456',name:'对象'}],mentionState:'rendered'});
+  const ui=await settingsHarness(f.controller);t.after(ui.close);let tree=ui.render();
+  const card=()=>flatten(tree).find(n=>n?.props?.['data-published-comment']==='receipt-only');
+  assert.match(nodeText(card()),/公开可见性未确认/);
+  assert.match(nodeText(card()),/回执含提及信息，通知是否到达/);
+  assert.ok(ui.button(card(),'只读核对可见性'));
+  f.controller.comments.save({...f.controller.comments.get('receipt-only'),publicList:{state:'not_in_sample',sampleCount:0,checkedAt:Date.now()}});
+  await ui.poll();tree=ui.render();assert.match(nodeText(card()),/未登录最新评论样本未见/);
+  assert.equal(ui.button(card(),'发送这条评论'),undefined);
+  assert.ok(ui.calls.every(c=>c.action==='status'));assert.equal(f.counters.read,0);
+});
+
 test('published comments combine top-level and nested replies, paginate and search saved rows, and isolate accounts', async t => {
   const f = fixture(t); await f.bind(); f.store.set('commentAccount', '123');
   for (let i = 0; i < 14; i++) f.controller.comments.save({ id: 'posted-' + i, accountUid: '123', bvid: BV,
@@ -31,10 +45,10 @@ test('record categories are parallel and publication history is absent from the 
   const byId = (root, id) => flatten(root).find(n => n?.props?.id === id);
   let tree = ui.render(); ui.button(tree, '记录').props.onClick(); tree = ui.render();
   const nav = flatten(tree).find(n => n?.props?.['aria-label'] === '记录分区');
-  assert.deepEqual(flatten(nav).filter(n => n?.type === 'button').map(nodeText), ['浏览记录', '互动记录', '已发评论', '待处理']);
-  const ids = ['bili-history-browse', 'bili-history-interactions', 'bili-published-comments', 'bili-history-pending'];
-  for (const [i, label] of ['浏览记录', '互动记录', '已发评论', '待处理'].entries()) {
-    ui.button(tree, label).props.onClick(); tree = ui.render();
+  assert.deepEqual(flatten(nav).filter(n => n?.type === 'button').map(nodeText), ['浏览记录', '互动记录', '已发评论', '待处理', '账号管理']);
+  const ids = ['bili-history-browse', 'bili-history-interactions', 'bili-published-comments', 'bili-history-pending', 'bili-history-account'];
+  for (const [i, label] of ['浏览记录', '互动记录', '已发评论', '待处理', '账号管理'].entries()) {
+    flatten(flatten(tree).find(n=>n?.props?.['aria-label']==='记录分区')).find(n=>n?.type==='button'&&nodeText(n)===label).props.onClick(); tree = ui.render();
     ids.forEach((id, index) => assert.equal(byId(tree, id).props.hidden, index !== i));
   }
   ui.button(tree, '互动').props.onClick(); tree = ui.render();

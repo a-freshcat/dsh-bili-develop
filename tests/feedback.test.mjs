@@ -7,7 +7,8 @@ import { fixture, BV } from './fixtures.mjs';
 const day = Date.parse('2026-10-23T12:00:00+08:00');
 async function setup(t, extra = {}) {
   const clock = { now: day }; let response;
-  const f = fixture(t, { now: () => clock.now, output: (_text, id) => JSON.stringify(response(f.store.run(id))), ...extra });
+  const f = fixture(t, { now: () => clock.now, output: (_text, id) => JSON.stringify({
+    integrated_persona: { text: '', reason: '先保留为素材，暂不固化。', source_ids: [] }, ...response(f.store.run(id)) }), ...extra });
   await f.bind(); f.controller.configure({ learningEnabled: true }); f.controller.social.setAccount('123');
   response = run => ({ runId: run.id, comparison: '与以往相比，新的交流建议值得先观察。', decisions: [], additions: [], expression_decisions: [], report: '', direction: '' });
   return { ...f, clock, feedback: f.controller.feedback, response: fn => { response = fn; }, record: (extra = {}) => f.controller.feedback.record({ account: '123', sender: '456', sourceId: 'reply-1', text: 'AI味太重，建议直接说重点。', scope: 'public_reply', bvid: BV, url: 'https://www.bilibili.com/video/' + BV + '/#reply123', ...extra }) };

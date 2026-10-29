@@ -67,7 +67,7 @@ export class Discovery {
         summary: String(v.preview?.summary || '').slice(0, 300), evaluation: String(v.preview?.evaluation || '').slice(0, 300) }; });
     const payload = { roundId: round.id, policy: this.policy(account), candidates,
       max: Math.min(round.limit, this.s.budget(config, this.c.now()).analysisLimit - this.s.budget(config, this.c.now()).analyses),
-      iteration: config.learningEnabled ? this.c.learning.iteration(account).traits : [], recent };
+      iteration: config.learningEnabled ? this.c.learning.iteration(account).profile?.text ?? this.c.learning.iteration(account).traits : [], recent };
     const id = round.id + '-choice';
     const reserved = this.s.start({ id, kind: 'browse_choice', sessionId: binding.sessionId, accountUid: account, source: 'autonomous', now: this.c.now(), admit: () => {
       assert(!this.c.scheduler.paused && !this.c.closed && this.s.openRound()?.id === round.id, 'BROWSING_PAUSED', '本轮已暂停或结束。');
